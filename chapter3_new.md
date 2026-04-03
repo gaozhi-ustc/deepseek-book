@@ -97,7 +97,7 @@ $$\mathbfit{C}_{ij} = \sum_{l=1}^{\lceil K/K_{\mathrm{tile}} \rceil} \mathbfit{C
 
 图 3-1展示了DeepGEMM应用二级累加计算实现混合精度训练的整体框架。
 
-![image-20260118131651489](/Users/gaozhi/Library/Application Support/typora-user-images/image-20260118131651489.png)
+![image-20260118131651489](./typora-user-images/image-20260118131651489.png)
 
 图 3-1 FP8数据格式下的混合精度训练框架
 
@@ -679,7 +679,7 @@ $$\text{chain\_id} = f(\text{chunk\_index}, \text{shuffle\_seed}, \text{chain\_t
 
 CRAQ 链式复制协议示意如图 3-3 所示。
 
-![image-20260123142640515](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260123142640515.png)
+![image-20260123142640515](./typora-user-images/image-20260123142640515.png)
 
 图 3-3 CRAQ 链式复制协议示意
 
@@ -754,7 +754,7 @@ $$\text{State} \in \{\text{ONLINE}, \text{SUSPECT}, \text{OFFLINE}, \text{DECOMM
 
 3FS 存储服务在整体架构中的位置如图 3-4 所示。
 
-![image-20260123162108664](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260123162108664.png)
+![image-20260123162108664](./typora-user-images/image-20260123162108664.png)
 
 图 3-4 3FS 存储服务架构
 
@@ -816,7 +816,7 @@ ChunkStorage 本身提供了三个基础的功能如下:
 
 3FS 写流程如图 3-6 所示。
 
-![image-20260123160847255](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260123160847255.png)
+![image-20260123160847255](./typora-user-images/image-20260123160847255.png)
 
 图 3-6 3FS 写流程（CRAQ 链式复制）
 
@@ -930,7 +930,7 @@ lor（Large Object of Rings）：
 
 3FS 客户端实现多级缓存，如图 3-9 所示。
 
-![image-20260123145106799](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260123145106799.png)
+![image-20260123145106799](./typora-user-images/image-20260123145106799.png)
 
 图 3-9 3FS 客户端缓存架构
 
@@ -991,7 +991,7 @@ $$T_{\mathrm{lease}} = T_{\mathrm{base}} + \alpha \cdot T_{\mathrm{activity}} $$
 
 基于 SSI 事务，所有一致性复杂性交由数据库解决。例如 rename 成环问题：当两个并发的 rename 操作可能导致目录树成环时，事务层检测到冲突，其中一个事务被取消并自动重试，如图 3-10 所示。
 
-![image-20260123145346356](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260123145346356.png)
+![image-20260123145346356](./typora-user-images/image-20260123145346356.png)
 
 图 3-10 SSI 事务处理 rename 成环问题
 
@@ -1244,7 +1244,7 @@ $$P_{\mathrm{depth}} = \min\left(\frac{B_{\mathrm{total}}}{B_{\mathrm{chunk}}}, 
 
 流水线执行时序如图 3-11 所示。
 
-![image-20260125111803108](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260125111803108.png)
+![image-20260125111803108](./typora-user-images/image-20260125111803108.png)
 
 图 3-11 DeepEP 流水线执行时序
 
@@ -1686,7 +1686,7 @@ $$\mathbfit{O}^{(i+1)} = \frac{e^{m^{(i)} - m^{(i+1)}} \ell^{(i)} \mathbfit{O}^{
 
 FlashAttention 前向传播算法流程如图 3-13 所示。
 
-![image-20260125104718500](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260125104718500.png)
+![image-20260125104718500](./typora-user-images/image-20260125104718500.png)
 
 图 3-13 FlashAttention 前向传播算法流程
 
@@ -1777,7 +1777,7 @@ WGMMA 提供更高吞吐：16×16×16 矩阵乘法（FP16）单指令完成，�
 
 FlashAttention V3 实现三级异步流水线，隐藏数据传输延迟，如图 3-14 所示。
 
-![image-20260125105552138](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260125105552138.png)
+![image-20260125105552138](./typora-user-images/image-20260125105552138.png)
 
 图 3-14 FlashAttention V3 三级流水线设计
 
@@ -2362,7 +2362,7 @@ NeMo-RL 是 NVIDIA 开发的大规模强化学习框架，专为多节点、多 
 
 NeMo-RL 采用分离式架构（Decoupled Architecture），生成和训练在不同的 GPU 集群上进行，如图 3-15 所示。
 
-![image-20260125113851757](file:///Users/gaozhi/git_projects/dpsk/typora-user-images/image-20260125113851757.png)
+![image-20260125113851757](./typora-user-images/image-20260125113851757.png)
 
 图 3-15 NeMo-RL 分布式架构
 
