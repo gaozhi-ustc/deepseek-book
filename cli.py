@@ -32,6 +32,63 @@ def cmd_convert(args):
         convert_formatted(args.input, args.output, xsl_path=args.xsl)
 
 
+def cmd_export_review(args):
+    """生成带 Track Changes 的送审 docx。"""
+    import datetime
+    from md_core import parse_md_blocks
+    from md_diff_docx import DiffDocxRenderer
+    from git_review import (
+        resolve_range, read_at, stamp_docx_metadata, update_review_state,
+        GitReviewError,
+    )
+
+    try:
+        base_sha, head_sha = resolve_range(
+            args.range_arg,
+            repo='.',
+            state_path='.review_state.json',
+        )
+    except GitReviewError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        old_text = read_at(base_sha, args.path, repo='.')
+        new_text = read_at(head_sha, args.path, repo='.')
+    except GitReviewError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    old_blocks = parse_md_blocks(old_text)
+    new_blocks = parse_md_blocks(new_text)
+
+    basename = os.path.splitext(os.path.basename(args.path))[0]
+    out_name = args.output or f'{basename}_{head_sha[:7]}.docx'
+
+    renderer = DiffDocxRenderer(use_comments=args.comments,
+                                author=args.author or 'AutoDiff')
+    renderer.render_diff(old_blocks, new_blocks)
+    renderer.save(out_name)
+
+    exported_at = datetime.datetime.now(datetime.timezone.utc).strftime(
+        '%Y-%m-%dT%H:%M:%SZ')
+    stamp_docx_metadata(
+        docx_path=out_name,
+        source_git_commit=head_sha,
+        source_base_commit=base_sha,
+        source_path=args.path,
+        exported_at=exported_at,
+    )
+    update_review_state(
+        '.review_state.json',
+        sha=head_sha, exported_at=exported_at,
+        file_name=os.path.basename(out_name),
+        base_sha=base_sha,
+    )
+    print(f'✅ 送审文档: {out_name}')
+    print(f'   基线: {base_sha[:7]}  送审版本: {head_sha[:7]}')
+
+
 def cmd_diff(args):
     from md_diff_docx import diff_md_files, diff_from_unified, REVISION_AUTHOR
 
@@ -126,12 +183,30 @@ def main():
     p_diff.add_argument('--author', default='AutoDiff',
                         help='修订作者名（默认: AutoDiff）')
 
+    # ── export-review 子命令 ────────────────────────────────
+    p_exp = subparsers.add_parser(
+        'export-review',
+        help='以 git commit 差异生成送审 docx（带 Track Changes）'
+    )
+    p_exp.add_argument('range_arg', metavar='RANGE',
+                       help='<commit> 或 <base>..<head> 或 --since-last-review')
+    p_exp.add_argument('--path', required=True,
+                       help='仓库内相对路径，如 chapter3_new.md')
+    p_exp.add_argument('-o', '--output',
+                       help='输出 docx 路径（默认 <basename>_<head_sha7>.docx）')
+    p_exp.add_argument('--comments', action='store_true',
+                       help='使用批注模式（默认 Track Changes）')
+    p_exp.add_argument('--author', default='AutoDiff',
+                       help='修订作者名')
+
     args = parser.parse_args()
 
     if args.command == 'convert':
         cmd_convert(args)
     elif args.command == 'diff':
         cmd_diff(args)
+    elif args.command == 'export-review':
+        cmd_export_review(args)
 
 
 if __name__ == '__main__':
