@@ -465,3 +465,46 @@ def test_apply_edits_opinion_appends_newline():
                     reason='comment_opinion')]
     new_text, _ = apply_edits_to_md(base, edits)
     assert new_text == 'A\n\n<!-- REVIEWER: x -->\nB\n'
+
+
+def test_render_commit_message_summary_counts():
+    from docx_to_md import render_commit_message
+    edits = [
+        MdEdit(target_line_range=(0, 1), replacement='A', reason='text_edit',
+               provenance='p1'),
+        MdEdit(target_line_range=(3, 4), replacement='B', reason='text_edit',
+               provenance='p2'),
+        MdEdit(target_line_range=(5, 5),
+               replacement='\n<!-- REVIEWER[x]: y -->',
+               reason='comment_opinion', provenance='op'),
+        MdEdit(target_line_range=(7, 8), replacement='', reason='delete',
+               provenance='d'),
+        MdEdit(target_line_range=(9, 10), replacement='C', reason='cell_edit',
+               provenance='ce'),
+    ]
+    msg = render_commit_message(
+        edits=edits, warnings=[],
+        reviewer='张三', docx_filename='chapter_abc1234.docx',
+        base_sha='abcdef1234567890' * 2 + 'abcd',
+        baseline_source='metadata',
+    )
+    first_line = msg.splitlines()[0]
+    assert '2 处文本修改' in first_line or '4 处文本修改' in first_line
+    assert '1 条意见' in first_line
+    assert 'chapter_abc1234.docx' in msg
+    assert 'abcdef1' in msg  # short sha
+    assert '基线来源: metadata' in msg
+    assert 'Co-Authored-By: md-docx-bridge' in msg
+
+
+def test_render_commit_message_with_warnings():
+    from docx_to_md import render_commit_message
+    msg = render_commit_message(
+        edits=[MdEdit(target_line_range=(0, 1), replacement='x',
+                      reason='text_edit', provenance='p')],
+        warnings=['conflict: edit X overlaps Y'],
+        reviewer='Z', docx_filename='a.docx',
+        base_sha='a' * 40, baseline_source='cli',
+    )
+    assert 'WARNING' in msg or '警告' in msg
+    assert 'conflict: edit X overlaps Y' in msg

@@ -632,6 +632,72 @@ def _ranges_overlap(a: Tuple[int, int], b: Tuple[int, int]) -> bool:
     return as_ < be and bs_ < ae
 
 
+# ──────────────────────────────────────────────────────────
+# commit message 模板
+# ──────────────────────────────────────────────────────────
+
+def _count_edits(edits: List[MdEdit]) -> dict:
+    text_reasons = {'text_edit', 'comment_edit', 'cell_edit', 'code_edit',
+                    'figure_replaced', 'formula_changed',
+                    'insert', 'delete'}
+    struct_reasons = {'struct_change', 'table_restructured'}
+    c = {'text': 0, 'struct': 0, 'opinion': 0}
+    for e in edits:
+        if e.reason in text_reasons:
+            c['text'] += 1
+        elif e.reason in struct_reasons:
+            c['struct'] += 1
+        elif e.reason == 'comment_opinion':
+            c['opinion'] += 1
+    return c
+
+
+def render_commit_message(*, edits: List[MdEdit],
+                          warnings: List[str],
+                          reviewer: str,
+                          docx_filename: str,
+                          base_sha: str,
+                          baseline_source: str) -> str:
+    cnt = _count_edits(edits)
+    title = (f'review: {cnt["text"]} 处文本修改 / '
+             f'{cnt["struct"]} 处结构改动 / '
+             f'{cnt["opinion"]} 条意见')
+
+    short = base_sha[:7]
+
+    # 明细
+    detail_lines = []
+    for e in edits:
+        rng = (f'第 {e.target_line_range[0] + 1}-{e.target_line_range[1]} 行'
+               if e.target_line_range[1] > e.target_line_range[0]
+               else f'第 {e.target_line_range[0] + 1} 行（插入）')
+        detail_lines.append(f'- {e.reason}: {rng}  {e.provenance}')
+
+    body = [
+        title,
+        '',
+        f'来自 {reviewer} 的审校（docx: {docx_filename}）',
+        f'基线 commit: {short}',
+        f'基线来源: {baseline_source}',
+        '',
+        '变动明细：',
+    ] + (detail_lines if detail_lines else ['（无）'])
+
+    if warnings:
+        body.append('')
+        body.append('WARNING / 警告：')
+        for w in warnings:
+            body.append(f'- {w}')
+
+    body.append('')
+    body.append('Co-Authored-By: md-docx-bridge <bridge@review.local>')
+    return '\n'.join(body) + '\n'
+
+
+# ──────────────────────────────────────────────────────────
+# 应用 MdEdit 到基线 md 文本
+# ──────────────────────────────────────────────────────────
+
 def apply_edits_to_md(baseline_text: str,
                       edits: List[MdEdit]) -> Tuple[str, List[str]]:
     """按 target_line_range 逆序（[0] 从大到小）应用 edits。
