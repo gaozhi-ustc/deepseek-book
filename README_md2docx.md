@@ -1,5 +1,8 @@
 # Markdown 转 DOCX 工具
 
+> 本文档已并入主 [README.md](./README.md)，此处仅保留供历史引用。
+> 新工作流与子命令（convert / diff / export-review / import-review）在主 README。
+
 将 Markdown 文件转换为符合《作者写作规范13条-1.27版》的 DOCX 文档。
 
 ## 安装依赖
