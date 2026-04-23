@@ -254,3 +254,102 @@ def test_detect_reviewer_fallback_unknown(tmp_path):
                                  reviewed_docx_path=str(d))
     assert name == 'unknown'
     assert slug == 'unknown'
+
+
+# ── commit_to_review_branch ───────────────────────────────
+from git_review import commit_to_review_branch, update_review_state
+
+
+def _current_head(repo):
+    return subprocess.check_output(
+        ['git', 'rev-parse', 'HEAD'], cwd=repo, text=True).strip()
+
+
+def _current_branch(repo):
+    return subprocess.check_output(
+        ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo, text=True).strip()
+
+
+def test_commit_to_review_branch_creates_branch_without_switching_head(tmp_git_repo):
+    base_sha = _commit(tmp_git_repo, 'chapter.md', 'old\n', 'init')
+    main_head_before = _current_head(tmp_git_repo)
+    main_branch_before = _current_branch(tmp_git_repo)
+
+    branch_ref, new_sha = commit_to_review_branch(
+        repo=str(tmp_git_repo),
+        reviewer_slug='zhangsan',
+        reviewer_name='张三',
+        base_sha=base_sha,
+        md_path='chapter.md',
+        new_md_bytes=b'new\n',
+        commit_message='review: 1 处文本修改\n',
+        docx_filename='reviewed.docx',
+        date_str='20260423',
+    )
+
+    # HEAD 没被切走
+    assert _current_head(tmp_git_repo) == main_head_before
+    assert _current_branch(tmp_git_repo) == main_branch_before
+
+    # 分支存在
+    assert branch_ref == 'refs/heads/review/zhangsan-20260423'
+    out = subprocess.check_output(
+        ['git', 'rev-parse', branch_ref], cwd=tmp_git_repo, text=True).strip()
+    assert out == new_sha
+
+    # commit 内容正确
+    content = subprocess.check_output(
+        ['git', 'show', f'{new_sha}:chapter.md'],
+        cwd=tmp_git_repo, text=True)
+    assert content == 'new\n'
+
+    # author / committer 正确
+    info = subprocess.check_output(
+        ['git', 'log', '-1', '--pretty=%an|%ae|%cn|%ce', new_sha],
+        cwd=tmp_git_repo, text=True).strip()
+    an, ae, cn, ce = info.split('|')
+    assert an == '张三'
+    assert ae == 'zhangsan@review.local'
+    assert cn == 'md-docx-bridge'
+    assert ce == 'bridge@review.local'
+
+
+def test_commit_to_review_branch_suffix_on_collision(tmp_git_repo):
+    base_sha = _commit(tmp_git_repo, 'chapter.md', 'old\n', 'init')
+
+    r1, s1 = commit_to_review_branch(
+        repo=str(tmp_git_repo), reviewer_slug='zhangsan', reviewer_name='张三',
+        base_sha=base_sha, md_path='chapter.md',
+        new_md_bytes=b'v1\n', commit_message='m1',
+        docx_filename='a.docx', date_str='20260423')
+
+    r2, s2 = commit_to_review_branch(
+        repo=str(tmp_git_repo), reviewer_slug='zhangsan', reviewer_name='张三',
+        base_sha=base_sha, md_path='chapter.md',
+        new_md_bytes=b'v2\n', commit_message='m2',
+        docx_filename='b.docx', date_str='20260423')
+
+    assert r1 == 'refs/heads/review/zhangsan-20260423'
+    assert r2 == 'refs/heads/review/zhangsan-20260423-2'
+    assert s1 != s2
+
+
+def test_update_review_state_appends_and_sets_last(tmp_path):
+    state = tmp_path / '.review_state.json'
+    state.write_text(json.dumps({
+        'last_exported_sha': None,
+        'last_exported_at': None,
+        'exports': [],
+    }), encoding='utf-8')
+
+    update_review_state(str(state), sha='a' * 40,
+                        exported_at='2026-04-23T00:00:00Z',
+                        file_name='x_aaaaaaa.docx',
+                        base_sha='b' * 40)
+    data = json.loads(state.read_text())
+    assert data['last_exported_sha'] == 'a' * 40
+    assert data['last_exported_at'] == '2026-04-23T00:00:00Z'
+    assert len(data['exports']) == 1
+    assert data['exports'][0]['sha'] == 'a' * 40
+    assert data['exports'][0]['file'] == 'x_aaaaaaa.docx'
+    assert data['exports'][0]['base'] == 'b' * 40

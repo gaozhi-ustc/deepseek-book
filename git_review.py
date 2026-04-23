@@ -363,3 +363,127 @@ def detect_reviewer(cli_reviewer: Optional[str],
             return a, _slugify(a)
 
     return 'unknown', 'unknown'
+
+
+# ──────────────────────────────────────────────────────────
+# commit_to_review_branch — 不切 HEAD 地建分支并写 commit
+# ──────────────────────────────────────────────────────────
+
+def _write_blob_from_bytes(data: bytes, repo: str) -> str:
+    out = _git(['hash-object', '-w', '--stdin'],
+               repo=repo, input_bytes=data)
+    return out.decode('ascii').strip()
+
+
+def _build_new_tree(base_commit_sha: str, override_path: str,
+                    new_blob_sha: str, repo: str) -> str:
+    """以 base_commit 的 tree 为模板，把 override_path 的 blob 替换成
+    new_blob_sha，写出新 tree sha。
+
+    用临时 GIT_INDEX_FILE + read-tree + update-index --cacheinfo + write-tree，
+    原生支持任意深度的路径，且不干扰主索引。
+    """
+    import tempfile as _tempfile
+    fd, idx_path = _tempfile.mkstemp(suffix='.gitidx')
+    os.close(fd)
+    os.remove(idx_path)  # read-tree 需要文件不存在
+    env = {'GIT_INDEX_FILE': idx_path}
+    try:
+        _git(['read-tree', base_commit_sha], repo=repo, env=env)
+        _git(['update-index', '--add', '--cacheinfo',
+              f'100644,{new_blob_sha},{override_path}'],
+             repo=repo, env=env)
+        out = _git(['write-tree'], repo=repo, env=env)
+        return out.decode('ascii').strip()
+    finally:
+        if os.path.exists(idx_path):
+            try:
+                os.remove(idx_path)
+            except OSError:
+                pass
+
+
+def _ref_exists(ref: str, repo: str) -> bool:
+    try:
+        _git(['show-ref', '--verify', '--quiet', ref], repo=repo)
+        return True
+    except GitReviewError:
+        return False
+
+
+def _pick_branch_ref(slug: str, date_str: str, repo: str) -> str:
+    base = f'refs/heads/review/{slug}-{date_str}'
+    if not _ref_exists(base, repo=repo):
+        return base
+    for n in range(2, 100):
+        cand = f'{base}-{n}'
+        if not _ref_exists(cand, repo=repo):
+            return cand
+    raise GitReviewError(
+        f'review 分支命名冲突超过 99 次：{base}-* 全部已存在')
+
+
+def commit_to_review_branch(*,
+                            repo: str,
+                            reviewer_slug: str,
+                            reviewer_name: str,
+                            base_sha: str,
+                            md_path: str,
+                            new_md_bytes: bytes,
+                            commit_message: str,
+                            docx_filename: str,
+                            date_str: str) -> Tuple[str, str]:
+    """用 plumbing 写入 review/<slug>-<date>[-<n>] 分支上的一个 commit，
+    不 checkout / 不动工作区。
+
+    返回 (branch_ref, new_commit_sha)。
+    """
+    _ = docx_filename  # 仅用于调用方组 message；函数内不直接落盘
+
+    # 1. blob
+    blob_sha = _write_blob_from_bytes(new_md_bytes, repo=repo)
+
+    # 2. tree（在 base 的 tree 基础上替换 md_path）
+    tree_sha = _build_new_tree(base_sha, md_path, blob_sha, repo=repo)
+
+    # 3. commit
+    env = {
+        'GIT_AUTHOR_NAME':    reviewer_name,
+        'GIT_AUTHOR_EMAIL':   f'{reviewer_slug}@review.local',
+        'GIT_COMMITTER_NAME':  'md-docx-bridge',
+        'GIT_COMMITTER_EMAIL': 'bridge@review.local',
+    }
+    out = _git(['commit-tree', tree_sha, '-p', base_sha, '-m', commit_message],
+               repo=repo, env=env)
+    new_sha = out.decode('ascii').strip()
+
+    # 4. 选分支 ref 并 update-ref
+    branch_ref = _pick_branch_ref(reviewer_slug, date_str, repo=repo)
+    _git(['update-ref', branch_ref, new_sha], repo=repo)
+    return branch_ref, new_sha
+
+
+# ──────────────────────────────────────────────────────────
+# update_review_state
+# ──────────────────────────────────────────────────────────
+
+def update_review_state(state_path: str, *,
+                        sha: str,
+                        exported_at: str,
+                        file_name: str,
+                        base_sha: str) -> None:
+    """追加 export 记录并把 last_exported_sha 指向新 sha。"""
+    if os.path.exists(state_path):
+        with open(state_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = {'last_exported_sha': None, 'last_exported_at': None, 'exports': []}
+
+    data.setdefault('exports', [])
+    data['exports'].append({'sha': sha, 'file': file_name, 'base': base_sha})
+    data['last_exported_sha'] = sha
+    data['last_exported_at'] = exported_at
+
+    with open(state_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write('\n')
