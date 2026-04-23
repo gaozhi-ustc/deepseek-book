@@ -13,7 +13,7 @@ md_core.py — Markdown 转 DOCX 核心转换器
 import re
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Literal, Tuple
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -28,20 +28,45 @@ import latex2mathml.converter
 # ──────────────────────────────────────────────────────────
 
 @dataclass
+class Revision:
+    kind: Literal['ins', 'del']
+    text: str
+    author: str
+    date: str          # ISO 8601
+    rev_id: int
+
+
+@dataclass
+class Comment:
+    comment_id: int
+    author: str
+    date: str
+    text: str                        # 批注正文
+    anchor_text: str                 # 批注锚点原文
+    anchor_range: Tuple[int, int]    # Block text 内字符偏移 [start, end)
+
+
+@dataclass
 class HeadingBlock:
     level: int
     text: str
     raw: str
+    revisions: List[Revision] = field(default_factory=list)
+    comments: List[Comment]   = field(default_factory=list)
 
 @dataclass
 class ParagraphBlock:
     text: str
     raw: str
+    revisions: List[Revision] = field(default_factory=list)
+    comments: List[Comment]   = field(default_factory=list)
 
 @dataclass
 class EquationBlock:
     latex: str       # 不含 $$ 分隔符的原始 LaTeX
     raw: str
+    revisions: List[Revision] = field(default_factory=list)
+    comments: List[Comment]   = field(default_factory=list)
 
 @dataclass
 class TableBlock:
@@ -49,6 +74,8 @@ class TableBlock:
     rows: List[List[str]]
     caption: str     # 可能为空，由规范层填充
     raw: str
+    revisions: List[Revision] = field(default_factory=list)
+    comments: List[Comment]   = field(default_factory=list)
 
 @dataclass
 class CodeBlock:
@@ -56,6 +83,8 @@ class CodeBlock:
     language: str
     title: str       # 可能为空，由规范层填充
     raw: str
+    revisions: List[Revision] = field(default_factory=list)
+    comments: List[Comment]   = field(default_factory=list)
 
 @dataclass
 class FigureBlock:
@@ -63,16 +92,22 @@ class FigureBlock:
     path: str
     caption: str     # 可能为空
     raw: str
+    revisions: List[Revision] = field(default_factory=list)
+    comments: List[Comment]   = field(default_factory=list)
 
 @dataclass
 class ListBlock:
     items: List[str]
     ordered: bool
     raw: str
+    revisions: List[Revision] = field(default_factory=list)
+    comments: List[Comment]   = field(default_factory=list)
 
 @dataclass
 class BlankBlock:
     raw: str = ''
+    revisions: List[Revision] = field(default_factory=list)
+    comments: List[Comment]   = field(default_factory=list)
 
 Block = (HeadingBlock | ParagraphBlock | EquationBlock | TableBlock |
          CodeBlock | FigureBlock | ListBlock | BlankBlock)
