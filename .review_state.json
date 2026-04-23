@@ -1,5 +1,11 @@
 {
-  "last_exported_sha": null,
-  "last_exported_at": null,
-  "exports": []
+  "last_exported_sha": "982d07da59973c72b5a0e9c9b2ff0a0c4222f7de",
+  "last_exported_at": "2026-04-23T16:08:31Z",
+  "exports": [
+    {
+      "sha": "982d07da59973c72b5a0e9c9b2ff0a0c4222f7de",
+      "file": "chapter3_new_982d07d.docx",
+      "base": "18e12346121b64a2f10ad61d59bdedab34bdc611"
+    }
+  ]
 }
