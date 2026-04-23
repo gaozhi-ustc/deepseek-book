@@ -215,3 +215,82 @@ def read_docx_metadata(docx_path: str) -> dict:
         if name in _METADATA_KEYS and val_el is not None and val_el.text:
             result[name] = val_el.text
     return result
+
+
+# ──────────────────────────────────────────────────────────
+# resolve_baseline 四级回退
+# ──────────────────────────────────────────────────────────
+
+import re
+
+_FILENAME_SHA_RE = re.compile(r'_([0-9a-f]{7,40})\.docx$', re.IGNORECASE)
+
+
+def _try_rev_parse(ref: str, repo: str) -> Optional[str]:
+    try:
+        return _rev_parse(ref, repo=repo)
+    except GitReviewError:
+        return None
+
+
+def _path_exists_at(sha: str, path: str, repo: str) -> bool:
+    try:
+        _git(['cat-file', '-e', f'{sha}:{path}'], repo=repo)
+        return True
+    except GitReviewError:
+        return False
+
+
+def resolve_baseline(docx_path: str,
+                     repo: str = '.',
+                     cli_base: Optional[str] = None,
+                     cli_path: Optional[str] = None) -> Tuple[str, str, str]:
+    """四级回退确定基线：
+      1. custom.xml 中的 SourceGitCommit / SourcePath
+      2. 文件名匹配 *_<sha7+>.docx；path 走 cli_path
+      3. sidecar 文件 <docx_path>.base（首行 sha）；path 走 cli_path
+      4. cli_base + cli_path
+    全都失败 → GitReviewError。
+    返回 (base_sha_full40, source_path, source_kind)。
+    """
+    # 1. metadata
+    try:
+        meta = read_docx_metadata(docx_path)
+    except GitReviewError:
+        meta = {}
+    if meta.get('SourceGitCommit') and meta.get('SourcePath'):
+        sha = _try_rev_parse(meta['SourceGitCommit'], repo=repo)
+        if sha is not None:
+            if not _path_exists_at(sha, meta['SourcePath'], repo=repo):
+                raise GitReviewError(
+                    f"metadata 的 SourceGitCommit={meta['SourceGitCommit'][:7]} "
+                    f"在仓库里存在，但其 SourcePath={meta['SourcePath']} 不存在；"
+                    "sha 与 path 不匹配")
+            return sha, meta['SourcePath'], 'metadata'
+
+    # 2. 文件名
+    m = _FILENAME_SHA_RE.search(os.path.basename(docx_path))
+    if m and cli_path:
+        sha = _try_rev_parse(m.group(1), repo=repo)
+        if sha is not None and _path_exists_at(sha, cli_path, repo=repo):
+            return sha, cli_path, 'filename'
+
+    # 3. sidecar
+    sidecar = docx_path + '.base'
+    if os.path.exists(sidecar) and cli_path:
+        with open(sidecar, 'r', encoding='utf-8') as f:
+            content = f.readline().strip()
+        sha = _try_rev_parse(content, repo=repo)
+        if sha is not None and _path_exists_at(sha, cli_path, repo=repo):
+            return sha, cli_path, 'sidecar'
+
+    # 4. CLI
+    if cli_base and cli_path:
+        sha = _try_rev_parse(cli_base, repo=repo)
+        if sha is not None and _path_exists_at(sha, cli_path, repo=repo):
+            return sha, cli_path, 'cli'
+
+    raise GitReviewError(
+        'resolve_baseline 四级回退全部失败：metadata/filename/sidecar/cli 都未命中。'
+        '请使用 --base <sha> --path <relpath> 明确指定。'
+    )

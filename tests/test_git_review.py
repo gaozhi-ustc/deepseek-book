@@ -137,3 +137,84 @@ def test_stamp_is_idempotent(tmp_path):
     assert meta['SourceGitCommit'] == 'c' * 40
     assert meta['SourcePath'] == 'y.md'
     assert meta['ReviewExportedAt'] == 't2'
+
+
+# ── resolve_baseline ──────────────────────────────────────
+from git_review import resolve_baseline
+
+
+def test_resolve_baseline_from_metadata(tmp_path, tmp_git_repo):
+    sha = _commit(tmp_git_repo, 'chapter.md', 'v1\n', 'c1')
+    docx = tmp_path / 'anything.docx'
+    _make_bare_docx(docx)
+    stamp_docx_metadata(str(docx), sha, sha, 'chapter.md', '2026-04-23T00:00:00Z')
+
+    base, path, kind = resolve_baseline(str(docx), repo=str(tmp_git_repo))
+    assert base == sha
+    assert path == 'chapter.md'
+    assert kind == 'metadata'
+
+
+def test_resolve_baseline_from_filename(tmp_path, tmp_git_repo):
+    sha = _commit(tmp_git_repo, 'chapter.md', 'v1\n', 'c1')
+    short = sha[:7]
+    docx = tmp_path / f'chapter_{short}.docx'
+    _make_bare_docx(docx)
+
+    base, path, kind = resolve_baseline(
+        str(docx), repo=str(tmp_git_repo), cli_path='chapter.md')
+    assert base == sha
+    assert path == 'chapter.md'
+    assert kind == 'filename'
+
+
+def test_resolve_baseline_from_sidecar(tmp_path, tmp_git_repo):
+    sha = _commit(tmp_git_repo, 'chapter.md', 'v1\n', 'c1')
+    docx = tmp_path / 'foo.docx'
+    _make_bare_docx(docx)
+    (tmp_path / 'foo.docx.base').write_text(sha + '\n', encoding='utf-8')
+
+    base, path, kind = resolve_baseline(
+        str(docx), repo=str(tmp_git_repo), cli_path='chapter.md')
+    assert base == sha
+    assert kind == 'sidecar'
+
+
+def test_resolve_baseline_from_cli(tmp_path, tmp_git_repo):
+    sha = _commit(tmp_git_repo, 'chapter.md', 'v1\n', 'c1')
+    docx = tmp_path / 'mystery.docx'
+    _make_bare_docx(docx)
+
+    base, path, kind = resolve_baseline(
+        str(docx), repo=str(tmp_git_repo),
+        cli_base=sha, cli_path='chapter.md')
+    assert base == sha
+    assert path == 'chapter.md'
+    assert kind == 'cli'
+
+
+def test_resolve_baseline_all_fail(tmp_path, tmp_git_repo):
+    _commit(tmp_git_repo, 'chapter.md', 'v1\n', 'c1')
+    docx = tmp_path / 'mystery.docx'
+    _make_bare_docx(docx)
+    with pytest.raises(GitReviewError, match='baseline'):
+        resolve_baseline(str(docx), repo=str(tmp_git_repo))
+
+
+def test_resolve_baseline_metadata_sha_not_in_repo(tmp_path, tmp_git_repo):
+    _commit(tmp_git_repo, 'chapter.md', 'v1\n', 'c1')
+    docx = tmp_path / 'x.docx'
+    _make_bare_docx(docx)
+    stamp_docx_metadata(str(docx), 'd' * 40, 'e' * 40, 'chapter.md', 't')
+    # metadata 指向仓库里不存在的 sha，应继续回退
+    with pytest.raises(GitReviewError):
+        resolve_baseline(str(docx), repo=str(tmp_git_repo))
+
+
+def test_resolve_baseline_metadata_path_missing(tmp_path, tmp_git_repo):
+    sha = _commit(tmp_git_repo, 'chapter.md', 'v1\n', 'c1')
+    docx = tmp_path / 'x.docx'
+    _make_bare_docx(docx)
+    stamp_docx_metadata(str(docx), sha, sha, 'no_such_file.md', 't')
+    with pytest.raises(GitReviewError, match='SourcePath'):
+        resolve_baseline(str(docx), repo=str(tmp_git_repo))
