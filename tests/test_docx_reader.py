@@ -214,3 +214,44 @@ def test_equation_fingerprint_canonical_ignores_rpr_noise(tmp_path):
     f_clean = equation_fingerprint(ET.fromstring(SIMPLE_OMATH_X_EQ_1))
     f_noisy = equation_fingerprint(ET.fromstring(noisy))
     assert f_clean == f_noisy
+
+
+from md_core import FigureBlock
+from tests.fixtures.build_min_docx import (
+    make_figure_paragraph, make_doc_rels_with_image,
+)
+
+PNG_1x1 = (
+    b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+    b'\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\x00'
+    b'\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82'
+)
+
+
+def test_read_figure_with_media(tmp_path):
+    body = make_figure_paragraph('rId7', alt='示意图')
+    rels = make_doc_rels_with_image('rId7', 'sample.png')
+    docx = tmp_path / 'f.docx'
+    write_docx(str(docx), body,
+               media={'sample.png': PNG_1x1},
+               extra_rels=rels)
+    blocks = read_docx(str(docx))
+    figs = [b for b in blocks if isinstance(b, FigureBlock)]
+    assert len(figs) == 1
+    fb = figs[0]
+    assert fb.alt == '示意图'
+    # path 暂以 @media:<filename>:<sha256> 表示（docx_to_md 阶段再解析为真实 md 路径）
+    assert fb.path.startswith('@media:sample.png:')
+    assert len(fb.path.split(':')[-1]) == 64
+
+
+def test_read_figure_missing_rel_falls_back_to_alt_only(tmp_path):
+    # 没提供 rels 中对应的 id → path 空，alt 保留
+    body = make_figure_paragraph('rIdX', alt='孤立图')
+    docx = tmp_path / 'f.docx'
+    write_docx(str(docx), body)  # 使用默认 rels（没有 rIdX 项）
+    blocks = read_docx(str(docx))
+    figs = [b for b in blocks if isinstance(b, FigureBlock)]
+    assert len(figs) == 1
+    assert figs[0].alt == '孤立图'
+    assert figs[0].path == ''

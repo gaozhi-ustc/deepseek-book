@@ -271,6 +271,28 @@ def read_docx(path: str) -> List[Block]:
                                         revisions=[], comments=[]))
             continue
 
+        # 再检测图片段
+        figs = _find_figure_blips(child)
+        if figs:
+            _flush_list(); _flush_code()
+            rels = _parse_document_rels(bundle.get('rels'))
+            for fig in figs:
+                target = rels.get(fig['rId'], '')
+                if target.startswith('media/'):
+                    filename = target[len('media/'):]
+                else:
+                    filename = os.path.basename(target) if target else ''
+                data = bundle['media'].get(filename)
+                if data is not None:
+                    sha = hashlib.sha256(data).hexdigest()
+                    path = f'@media:{filename}:{sha}'
+                else:
+                    path = ''
+                blocks.append(FigureBlock(alt=fig['alt'], path=path,
+                                          caption='', raw='',
+                                          revisions=[], comments=[]))
+            continue
+
         if hlevel is not None:
             _flush_list(); _flush_code()
             blocks.append(HeadingBlock(level=hlevel, text=text, raw=text,
@@ -341,6 +363,44 @@ def _canonicalize_omml(omath_el) -> bytes:
 def equation_fingerprint(omath_el) -> str:
     """公式内容指纹，不随 rPr 字体属性变化。"""
     return hashlib.sha256(_canonicalize_omml(omath_el)).hexdigest()
+
+
+# ──────────────────────────────────────────────────────────
+# 图片段与 rels 解析
+# ──────────────────────────────────────────────────────────
+
+def _parse_document_rels(rels_bytes: Optional[bytes]) -> dict:
+    """返回 {rId: 内部路径（相对 word/）}"""
+    if not rels_bytes:
+        return {}
+    root = etree.fromstring(rels_bytes)
+    ns = 'http://schemas.openxmlformats.org/package/2006/relationships'
+    out = {}
+    for rel in root.findall(f'{{{ns}}}Relationship'):
+        out[rel.get('Id')] = rel.get('Target')
+    return out
+
+
+def _find_figure_blips(p_el) -> List[dict]:
+    """返回段落内所有图片的 {rId, alt} 列表。"""
+    wp_ns = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
+    a_ns = A_NS
+    r_ns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+
+    result = []
+    for blip in p_el.iter(f'{{{a_ns}}}blip'):
+        rid = blip.get(f'{{{r_ns}}}embed')
+        alt = ''
+        # 找该 blip 最近的 <wp:docPr descr/title>
+        ancestor = blip.getparent()
+        while ancestor is not None:
+            docpr = ancestor.find(f'{{{wp_ns}}}docPr')
+            if docpr is not None:
+                alt = docpr.get('descr') or docpr.get('title') or ''
+                break
+            ancestor = ancestor.getparent()
+        result.append({'rId': rid, 'alt': alt})
+    return result
 
 
 def _read_table(tbl_el) -> TableBlock:

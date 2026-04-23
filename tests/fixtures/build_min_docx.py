@@ -173,3 +173,36 @@ SIMPLE_OMATH_X_EQ_2 = (
     '<m:r><m:t>x=2</m:t></m:r>'
     '</m:oMath>'
 )
+
+
+def make_figure_paragraph(rel_id: str, alt: str = '') -> str:
+    """构造含 drawing 的段落，引用 rel_id 指向 word/media/xxx。"""
+    return (
+        '<w:p>'
+        '<w:r><w:drawing>'
+        '<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
+        f'<wp:docPr id="1" name="Picture" descr="{alt}"/>'
+        '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+        '<pic:blipFill>'
+        f'<a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="{rel_id}"/>'
+        '</pic:blipFill>'
+        '</pic:pic>'
+        '</a:graphicData>'
+        '</a:graphic>'
+        '</wp:inline>'
+        '</w:drawing></w:r>'
+        '</w:p>'
+    )
+
+
+def make_doc_rels_with_image(rel_id: str, media_file: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        f'  <Relationship Id="{rel_id}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+        f'Target="media/{media_file}"/>\n'
+        '</Relationships>\n'
+    )
