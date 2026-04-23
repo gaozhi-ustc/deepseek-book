@@ -136,3 +136,35 @@ def test_read_code_block_merges_adjacent_paragraphs(tmp_path):
     codes = [b for b in blocks if isinstance(b, CodeBlock)]
     assert len(codes) == 1
     assert codes[0].code == 'def foo():\n    return 42\n'
+
+
+from md_core import TableBlock
+from tests.fixtures.build_min_docx import make_table
+
+
+def test_read_table_basic(tmp_path):
+    body = make_table(
+        header=['列A', '列B', '列C'],
+        rows=[['1', '2', '3'], ['x', 'y', 'z']],
+    )
+    docx = tmp_path / 't.docx'
+    write_docx(str(docx), body)
+    blocks = read_docx(str(docx))
+    tables = [b for b in blocks if isinstance(b, TableBlock)]
+    assert len(tables) == 1
+    t = tables[0]
+    assert t.header == ['列A', '列B', '列C']
+    assert t.rows == [['1', '2', '3'], ['x', 'y', 'z']]
+
+
+def test_read_table_with_empty_cells(tmp_path):
+    body = make_table(
+        header=['A', 'B'],
+        rows=[['', 'b']],
+    )
+    docx = tmp_path / 't.docx'
+    write_docx(str(docx), body)
+    blocks = read_docx(str(docx))
+    tables = [b for b in blocks if isinstance(b, TableBlock)]
+    assert len(tables) == 1
+    assert tables[0].rows == [['', 'b']]

@@ -139,3 +139,18 @@ def make_code_block(code_lines: list[str]) -> str:
             f'<w:t xml:space="preserve">{line}</w:t></w:r></w:p>'
         )
     return '\n'.join(paras)
+
+
+def make_table(header: list[str], rows: list[list[str]]) -> str:
+    def cell(text):
+        return (f'<w:tc><w:p><w:r><w:t xml:space="preserve">{text}'
+                '</w:t></w:r></w:p></w:tc>')
+    all_rows = [header] + rows
+    out = ['<w:tbl>']
+    for row in all_rows:
+        out.append('<w:tr>')
+        for c in row:
+            out.append(cell(c))
+        out.append('</w:tr>')
+    out.append('</w:tbl>')
+    return '\n'.join(out)

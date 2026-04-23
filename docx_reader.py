@@ -247,9 +247,12 @@ def read_docx(path: str) -> List[Block]:
         if tag != 'p':
             _flush_list()
             _flush_code()
+            if tag == 'tbl':
+                blocks.append(_read_table(child))
+                continue
             if tag == 'sectPr':
                 continue
-            continue  # 后续任务处理 table 等
+            continue  # 其他元素忽略
 
         style = _pstyle(child)
         hlevel = _heading_level(style)
@@ -288,3 +291,24 @@ def read_docx(path: str) -> List[Block]:
 
     _flush_list(); _flush_code()
     return blocks
+
+
+def _read_table(tbl_el) -> TableBlock:
+    rows_xml = tbl_el.findall(f'{W}tr')
+    rows = []
+    for tr in rows_xml:
+        cells = []
+        for tc in tr.findall(f'{W}tc'):
+            # 合并同一 cell 内多个 <w:p> 的 accepted 文本
+            texts = []
+            for p in tc.findall(f'{W}p'):
+                text, _, _ = _paragraph_accepted_text_and_revisions(p)
+                texts.append(text)
+            cells.append('\n'.join(x for x in texts if x))
+        rows.append(cells)
+
+    if not rows:
+        return TableBlock(header=[], rows=[], caption='', raw='')
+    header = rows[0]
+    body_rows = rows[1:]
+    return TableBlock(header=header, rows=body_rows, caption='', raw='')
