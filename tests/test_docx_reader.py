@@ -71,3 +71,68 @@ def test_read_bad_zip_raises(tmp_path):
     from docx_reader import DocxReaderError
     with pytest.raises(DocxReaderError):
         read_docx(str(bad))
+
+
+from md_core import HeadingBlock, ListBlock, CodeBlock
+from tests.fixtures.build_min_docx import (
+    make_heading, make_list_item, make_code_block,
+)
+
+
+def test_read_heading_levels(tmp_path):
+    body = '\n'.join([
+        make_heading(1, '章标题'),
+        make_heading(2, '节标题'),
+        make_heading(3, '小节'),
+    ])
+    docx = tmp_path / 'h.docx'
+    write_docx(str(docx), body)
+    blocks = read_docx(str(docx))
+    hs = [b for b in blocks if isinstance(b, HeadingBlock)]
+    assert len(hs) == 3
+    assert (hs[0].level, hs[0].text) == (1, '章标题')
+    assert (hs[1].level, hs[1].text) == (2, '节标题')
+    assert (hs[2].level, hs[2].text) == (3, '小节')
+
+
+def test_read_unordered_list_merges_adjacent_items(tmp_path):
+    body = '\n'.join([
+        make_list_item('第一条', ordered=False),
+        make_list_item('第二条', ordered=False),
+        make_list_item('第三条', ordered=False),
+    ])
+    docx = tmp_path / 'l.docx'
+    write_docx(str(docx), body)
+    blocks = read_docx(str(docx))
+    lists = [b for b in blocks if isinstance(b, ListBlock)]
+    assert len(lists) == 1
+    assert lists[0].ordered is False
+    assert lists[0].items == ['第一条', '第二条', '第三条']
+
+
+def test_read_ordered_list(tmp_path):
+    body = '\n'.join([
+        make_list_item('A', ordered=True),
+        make_list_item('B', ordered=True),
+    ])
+    docx = tmp_path / 'l.docx'
+    write_docx(str(docx), body)
+    blocks = read_docx(str(docx))
+    lists = [b for b in blocks if isinstance(b, ListBlock)]
+    assert len(lists) == 1
+    assert lists[0].ordered is True
+    assert lists[0].items == ['A', 'B']
+
+
+def test_read_code_block_merges_adjacent_paragraphs(tmp_path):
+    body = make_code_block([
+        'def foo():',
+        '    return 42',
+        '',
+    ])
+    docx = tmp_path / 'c.docx'
+    write_docx(str(docx), body)
+    blocks = read_docx(str(docx))
+    codes = [b for b in blocks if isinstance(b, CodeBlock)]
+    assert len(codes) == 1
+    assert codes[0].code == 'def foo():\n    return 42\n'

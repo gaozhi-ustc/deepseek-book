@@ -143,7 +143,66 @@ def _paragraph_accepted_text_and_revisions(p_el):
 
 
 # ──────────────────────────────────────────────────────────
-# read_docx 主入口（先实现 paragraph）
+# 段落样式辅助
+# ──────────────────────────────────────────────────────────
+
+def _pstyle(p_el) -> Optional[str]:
+    pPr = p_el.find(f'{W}pPr')
+    if pPr is None:
+        return None
+    s = pPr.find(f'{W}pStyle')
+    return s.get(f'{W}val') if s is not None else None
+
+
+def _heading_level(style: Optional[str]) -> Optional[int]:
+    if not style:
+        return None
+    m = re.match(r'(?i)heading\s*([1-6])$', style)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _num_id(p_el) -> Optional[int]:
+    pPr = p_el.find(f'{W}pPr')
+    if pPr is None:
+        return None
+    numPr = pPr.find(f'{W}numPr')
+    if numPr is None:
+        return None
+    nid = numPr.find(f'{W}numId')
+    if nid is None:
+        return None
+    try:
+        return int(nid.get(f'{W}val'))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_code_paragraph(p_el) -> bool:
+    style = _pstyle(p_el)
+    if style and style.lower() in ('code', 'sourcecode', 'htmlpreformatted'):
+        return True
+    # 全部 run 使用 Courier 字体 → 视为代码
+    runs = p_el.findall(f'{W}r')
+    if not runs:
+        return False
+    mono = 0
+    for r in runs:
+        rPr = r.find(f'{W}rPr')
+        if rPr is None:
+            return False
+        rfonts = rPr.find(f'{W}rFonts')
+        if rfonts is None:
+            return False
+        font = (rfonts.get(f'{W}ascii') or '').lower()
+        if 'courier' in font or 'consolas' in font or 'monaco' in font:
+            mono += 1
+    return mono == len(runs)
+
+
+# ──────────────────────────────────────────────────────────
+# read_docx 主入口
 # ──────────────────────────────────────────────────────────
 
 def read_docx(path: str) -> List[Block]:
@@ -155,23 +214,77 @@ def read_docx(path: str) -> List[Block]:
         return []
 
     blocks: List[Block] = []
+    list_buf_items: List[str] = []
+    list_buf_ordered: Optional[bool] = None
+    code_buf_lines: List[str] = []
+
+    def _flush_list():
+        nonlocal list_buf_items, list_buf_ordered
+        if list_buf_items:
+            blocks.append(ListBlock(items=list_buf_items,
+                                    ordered=bool(list_buf_ordered),
+                                    raw=''))
+            list_buf_items = []
+            list_buf_ordered = None
+
+    def _flush_code():
+        nonlocal code_buf_lines
+        if code_buf_lines:
+            # 去掉尾部的空行避免额外空白
+            while code_buf_lines and code_buf_lines[-1] == '':
+                code_buf_lines.pop()
+            if code_buf_lines:
+                blocks.append(CodeBlock(code='\n'.join(code_buf_lines) + '\n',
+                                        language='', title='', raw=''))
+            code_buf_lines = []
+
     for child in body:
         tag = etree.QName(child).localname
         ns = etree.QName(child).namespace
         if ns != W_NS:
             continue
 
-        if tag == 'p':
-            blocks.append(_read_paragraph(child))
-        elif tag == 'sectPr':
+        if tag != 'p':
+            _flush_list()
+            _flush_code()
+            if tag == 'sectPr':
+                continue
+            continue  # 后续任务处理 table 等
+
+        style = _pstyle(child)
+        hlevel = _heading_level(style)
+        nid = _num_id(child)
+        is_code = _is_code_paragraph(child)
+        text, revisions, _comments_raw = _paragraph_accepted_text_and_revisions(child)
+
+        if hlevel is not None:
+            _flush_list(); _flush_code()
+            blocks.append(HeadingBlock(level=hlevel, text=text, raw=text,
+                                       revisions=revisions, comments=[]))
             continue
-        # 后续任务会追加 table / sdt 等
+
+        if nid is not None:
+            _flush_code()
+            ordered = (nid == 2)  # 约定；真实 docx 里需查 numbering.xml
+            if list_buf_ordered is None:
+                list_buf_ordered = ordered
+            if list_buf_ordered != ordered:
+                _flush_list()
+                list_buf_ordered = ordered
+            list_buf_items.append(text)
+            continue
+
+        if is_code:
+            _flush_list()
+            code_buf_lines.append(text)
+            continue
+
+        _flush_list(); _flush_code()
+        if not text.strip():
+            blocks.append(BlankBlock(raw=''))
+        else:
+            blocks.append(ParagraphBlock(text=text, raw=text,
+                                         revisions=revisions, comments=[]))
+
+    _flush_list(); _flush_code()
     return blocks
-
-
-def _read_paragraph(p_el) -> Block:
-    text, revisions, _ = _paragraph_accepted_text_and_revisions(p_el)
-    if not text.strip():
-        return BlankBlock(raw='')
-    return ParagraphBlock(text=text, raw=text,
-                          revisions=revisions, comments=[])

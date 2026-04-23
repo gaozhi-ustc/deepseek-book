@@ -115,3 +115,27 @@ def make_paragraph(text: str, *,
 def make_heading(level: int, text: str) -> str:
     return (f'<w:p><w:pPr><w:pStyle w:val="Heading{level}"/></w:pPr>'
             f'<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>')
+
+
+def make_list_item(text: str, *, ordered: bool = False, num_id: int = 1) -> str:
+    """w:numPr 引用 w:numId — 我们用约定 numId=1 为无序，numId=2 为有序，
+    上层只需读 numId 判断是否是列表。"""
+    nid = 1 if not ordered else 2
+    _ = num_id
+    return (f'<w:p><w:pPr><w:numPr>'
+            f'<w:ilvl w:val="0"/><w:numId w:val="{nid}"/></w:numPr></w:pPr>'
+            f'<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>')
+
+
+def make_code_block(code_lines: list[str]) -> str:
+    """约定：pStyle=Code / HTMLPreformatted / Courier 之一即视作 code；
+    我们这里用 pStyle="Code"，docx_reader 会识别。
+    多行会产生多个 <w:p>。"""
+    paras = []
+    for line in code_lines:
+        paras.append(
+            f'<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr>'
+            f'<w:r><w:rPr><w:rFonts w:ascii="Courier New"/></w:rPr>'
+            f'<w:t xml:space="preserve">{line}</w:t></w:r></w:p>'
+        )
+    return '\n'.join(paras)
