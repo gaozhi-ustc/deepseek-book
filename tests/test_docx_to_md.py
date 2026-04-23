@@ -323,3 +323,80 @@ def test_make_edits_equation_same_fingerprint_no_edit(tmp_path, monkeypatch):
     edits = make_edits_with_media(base_md, rev_blocks, media={})
     # match_blocks 按 _block_key='EQ:x=1' 对相等
     assert edits == []
+
+
+def _mock_classifier_edit(new_text: str, conf: float):
+    def fn(**kwargs):
+        return {'kind': 'edit', 'new_text': new_text,
+                'confidence': conf, 'reasoning': '-'}
+    return fn
+
+
+def _mock_classifier_opinion():
+    def fn(**kwargs):
+        return {'kind': 'opinion', 'new_text': None,
+                'confidence': 0.5, 'reasoning': 'discussion'}
+    return fn
+
+
+def test_comment_edit_high_conf_becomes_text_edit(tmp_path, monkeypatch):
+    from docx_to_md import make_edits_with_comments
+    base_md = '前者发生在预训练阶段。\n'
+    rev_block = ParagraphBlock(
+        text='前者发生在预训练阶段。', raw='前者发生在预训练阶段。',
+        comments=[Comment(comment_id=0, author='审校者',
+                          date='2026-04-23T00:00:00Z',
+                          text='改成：前者出现于预训练阶段。',
+                          anchor_text='前者发生在预训练阶段。',
+                          anchor_range=(0, 12))],
+    )
+    monkeypatch.chdir(tmp_path)
+    edits = make_edits_with_comments(
+        base_md, [rev_block],
+        media={},
+        classify_fn=_mock_classifier_edit('前者出现于预训练阶段。', 0.9),
+    )
+    ces = [e for e in edits if e.reason == 'comment_edit']
+    assert len(ces) == 1
+    assert ces[0].replacement == '前者出现于预训练阶段。'
+
+
+def test_comment_edit_low_conf_becomes_opinion(tmp_path, monkeypatch):
+    from docx_to_md import make_edits_with_comments
+    base_md = '前者发生在预训练阶段。\n'
+    rev_block = ParagraphBlock(
+        text='前者发生在预训练阶段。', raw='前者发生在预训练阶段。',
+        comments=[Comment(comment_id=0, author='审校者',
+                          date='2026-04-23T00:00:00Z',
+                          text='也许可以改一下？',
+                          anchor_text='前者',
+                          anchor_range=(0, 2))],
+    )
+    monkeypatch.chdir(tmp_path)
+    edits = make_edits_with_comments(
+        base_md, [rev_block], media={},
+        classify_fn=_mock_classifier_edit('XXX', 0.5),  # conf < 0.7
+    )
+    cos = [e for e in edits if e.reason == 'comment_opinion']
+    assert len(cos) == 1
+    assert '<!-- REVIEWER[审校者]:' in cos[0].replacement
+
+
+def test_comment_pure_opinion_becomes_opinion(tmp_path, monkeypatch):
+    from docx_to_md import make_edits_with_comments
+    base_md = '正文。\n'
+    rev_block = ParagraphBlock(
+        text='正文。', raw='正文。',
+        comments=[Comment(comment_id=0, author='张三',
+                          date='2026-04-23T00:00:00Z',
+                          text='这段可以更精简',
+                          anchor_text='正文。', anchor_range=(0, 3))],
+    )
+    monkeypatch.chdir(tmp_path)
+    edits = make_edits_with_comments(
+        base_md, [rev_block], media={},
+        classify_fn=_mock_classifier_opinion(),
+    )
+    cos = [e for e in edits if e.reason == 'comment_opinion']
+    assert len(cos) == 1
+    assert '张三' in cos[0].replacement

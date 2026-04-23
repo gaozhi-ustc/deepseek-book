@@ -496,6 +496,82 @@ def make_edits_with_media(baseline_md_text: str,
     return list(edits_by_range.values())
 
 
+# ──────────────────────────────────────────────────────────
+# Comment 分流
+# ──────────────────────────────────────────────────────────
+
+EDIT_CONFIDENCE_THRESHOLD = 0.7
+
+
+def make_edits_with_comments(baseline_md_text: str,
+                             reviewed_blocks: List[Block],
+                             media: dict,
+                             classify_fn) -> List[MdEdit]:
+    """make_edits_with_media 的进一步扩展：把每个 reviewed Block.comments
+    经 classify_fn 分流为 comment_edit 或 comment_opinion MdEdit。
+
+    classify_fn 接受 block_text / anchor_text / comment_body / md_context
+    四个关键字参数，返回 dict（同 comment_classifier.classify）。
+    """
+    edits = list(make_edits_with_media(baseline_md_text, reviewed_blocks, media))
+
+    # 重建 baseline span 映射用于定位 comment 锚点的行号
+    baseline_with_spans = parse_md_blocks_with_spans(baseline_md_text)
+    base_blocks = [b for (b, _, _) in baseline_with_spans
+                   if not isinstance(b, BlankBlock)]
+    base_spans = {id(b): (s, e) for (b, s, e) in baseline_with_spans
+                  if not isinstance(b, BlankBlock)}
+    rev_blocks_f = [b for b in reviewed_blocks if not isinstance(b, BlankBlock)]
+    matches = match_blocks(base_blocks, rev_blocks_f)
+
+    # 构造 reviewed_block -> base_span 的映射
+    rev_to_span = {}
+    for m in matches:
+        if m.reviewed_block is not None and m.base_block is not None:
+            span = base_spans.get(id(m.base_block))
+            if span is not None:
+                rev_to_span[id(m.reviewed_block)] = span
+
+    lines = baseline_md_text.splitlines()
+    for rb in rev_blocks_f:
+        for c in getattr(rb, 'comments', []):
+            span = rev_to_span.get(id(rb))
+            if span is None:
+                # 纯新增块的 comment；跳过（罕见）
+                continue
+            anchor_line = span[0]
+            ctx_start = max(0, span[0] - 2)
+            ctx_end = min(len(lines), span[1] + 2)
+            md_context = '\n'.join(lines[ctx_start:ctx_end])
+
+            result = classify_fn(
+                block_text=getattr(rb, 'text', '') or getattr(rb, 'latex', '') or '',
+                anchor_text=c.anchor_text,
+                comment_body=c.text,
+                md_context=md_context,
+            )
+            if (result.get('kind') == 'edit' and
+                    result.get('confidence', 0) >= EDIT_CONFIDENCE_THRESHOLD and
+                    result.get('new_text')):
+                edits.append(MdEdit(
+                    target_line_range=span,
+                    replacement=result['new_text'],
+                    reason='comment_edit',
+                    provenance=(f'comment by {c.author} (conf={result["confidence"]:.2f}): '
+                                f'"{c.text[:30]}"'),
+                ))
+            else:
+                # 追加到锚点所在块末尾之后
+                note = f'\n<!-- REVIEWER[{c.author}]: {c.text} -->'
+                edits.append(MdEdit(
+                    target_line_range=(span[1], span[1]),
+                    replacement=note,
+                    reason='comment_opinion',
+                    provenance=f'comment by {c.author}',
+                ))
+    return edits
+
+
 def _emit_formula_attachment(eq: EquationBlock, idx: int) -> None:
     """把 reviewed EquationBlock.raw（OMML XML 片段）包成最小 docx，存到
     review/attachments/<idx>.docx。若系统有 libreoffice，再转成 <idx>.png。"""
