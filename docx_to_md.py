@@ -136,11 +136,12 @@ def match_blocks(base: List[Block], rev: List[Block]) -> List[BlockMatch]:
             pairs = min(len(a_chunk), len(b_chunk))
             for k in range(pairs):
                 a, b = a_chunk[k], b_chunk[k]
-                # 同位置同类 Figure/Table 无条件视为 text_edit / struct_change
-                # （路径/结构差大使 ratio 低，但业务语义上还是同一个图/表被改）
+                # 同位置同类 Figure/Table/Equation 无条件视为 text_edit / struct_change
+                # （路径/结构/公式差异大使 ratio 低，但业务语义上是同一个块被改）
                 same_figure = (isinstance(a, FigureBlock) and isinstance(b, FigureBlock))
                 same_table  = (isinstance(a, TableBlock)  and isinstance(b, TableBlock))
-                if same_figure:
+                same_equation = (isinstance(a, EquationBlock) and isinstance(b, EquationBlock))
+                if same_figure or same_equation:
                     matches.append(BlockMatch(a, b, 'text_edit'))
                     continue
                 if same_table:
@@ -467,4 +468,75 @@ def make_edits_with_media(baseline_md_text: str,
             provenance=f'figure replace at line {span[0] + 1}, sha={rev_sha[:8] if rev_sha else "?"}',
         )
 
+    # equation 特化：对 text_edit/struct_change 的 Equation→Equation 产占位 + 落盘片段
+    attach_idx = 0
+    for m in matches:
+        if m.kind not in ('text_edit', 'struct_change'):
+            continue
+        if not (isinstance(m.base_block, EquationBlock) and
+                isinstance(m.reviewed_block, EquationBlock)):
+            continue
+        span = base_spans.get(id(m.base_block))
+        if span is None:
+            continue
+        attach_idx += 1
+        _emit_formula_attachment(m.reviewed_block, attach_idx)
+        new_md = (f'<!-- REVIEW: formula changed, '
+                  f'see review/attachments/{attach_idx}.docx -->')
+        for key in list(edits_by_range.keys()):
+            if key[0] == span:
+                edits_by_range.pop(key, None)
+        edits_by_range[(span, 'formula_changed')] = MdEdit(
+            target_line_range=span,
+            replacement=new_md,
+            reason='formula_changed',
+            provenance=f'formula change at line {span[0] + 1}',
+        )
+
     return list(edits_by_range.values())
+
+
+def _emit_formula_attachment(eq: EquationBlock, idx: int) -> None:
+    """把 reviewed EquationBlock.raw（OMML XML 片段）包成最小 docx，存到
+    review/attachments/<idx>.docx。若系统有 libreoffice，再转成 <idx>.png。"""
+    out_dir = os.path.join('review', 'attachments')
+    os.makedirs(out_dir, exist_ok=True)
+    docx_path = os.path.join(out_dir, f'{idx}.docx')
+
+    W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    M = 'http://schemas.openxmlformats.org/officeDocument/2006/math'
+    body = (
+        f'<w:p><m:oMathPara xmlns:m="{M}">{eq.raw}</m:oMathPara></w:p>'
+        if eq.raw.startswith('<m:oMath') else
+        f'<w:p><w:r><w:t xml:space="preserve">{eq.latex}</w:t></w:r></w:p>'
+    )
+    import zipfile as _zf
+    ct = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+          '<Default Extension="xml" ContentType="application/xml"/>'
+          '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+          '</Types>')
+    rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            '</Relationships>')
+    doc = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+           f'<w:document xmlns:w="{W}"><w:body>{body}</w:body></w:document>')
+    with _zf.ZipFile(docx_path, 'w', _zf.ZIP_DEFLATED) as z:
+        z.writestr('[Content_Types].xml', ct)
+        z.writestr('_rels/.rels', rels)
+        z.writestr('word/document.xml', doc)
+
+    # 可选 libreoffice 转 png
+    if _shutil.which('libreoffice') is not None:
+        try:
+            _subprocess.run(
+                ['libreoffice', '--headless',
+                 '--convert-to', 'png',
+                 '--outdir', out_dir, docx_path],
+                check=True, stdout=_subprocess.DEVNULL, stderr=_subprocess.PIPE,
+                timeout=30,
+            )
+        except (_subprocess.CalledProcessError, _subprocess.TimeoutExpired):
+            pass

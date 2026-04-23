@@ -289,3 +289,37 @@ def test_make_edits_figure_same_sha_no_change(tmp_path, monkeypatch):
     edits = make_edits_with_media(base_md, rev_blocks, {sha: b'x'})
     # 期望不产出 figure_replaced
     assert not any(e.reason == 'figure_replaced' for e in edits)
+
+
+def test_make_edits_equation_changed_emits_placeholder(tmp_path, monkeypatch):
+    from docx_to_md import make_edits_with_media
+
+    base_md = '正文。\n\n$$a + b = c$$\n\n后文。\n'
+    # reviewed：指纹不同
+    rev_blocks = [
+        ParagraphBlock(text='正文。', raw='正文。'),
+        EquationBlock(latex='@omml:ffffffffffffffff' + 'f' * 48,
+                      raw='<m:oMath/>'),
+        ParagraphBlock(text='后文。', raw='后文。'),
+    ]
+    monkeypatch.chdir(tmp_path)
+    edits = make_edits_with_media(base_md, rev_blocks, media={})
+
+    eq_edits = [e for e in edits if e.reason == 'formula_changed']
+    assert len(eq_edits) == 1
+    e = eq_edits[0]
+    assert '<!-- REVIEW: formula changed' in e.replacement
+    # attachments 目录下应有片段 docx（不依赖 libreoffice）
+    assert (tmp_path / 'review' / 'attachments').exists()
+    docx_files = list((tmp_path / 'review' / 'attachments').glob('*.docx'))
+    assert len(docx_files) == 1
+
+
+def test_make_edits_equation_same_fingerprint_no_edit(tmp_path, monkeypatch):
+    from docx_to_md import make_edits_with_media
+    base_md = '$$x=1$$\n'
+    rev_blocks = [EquationBlock(latex='x=1', raw='')]
+    monkeypatch.chdir(tmp_path)
+    edits = make_edits_with_media(base_md, rev_blocks, media={})
+    # match_blocks 按 _block_key='EQ:x=1' 对相等
+    assert edits == []
