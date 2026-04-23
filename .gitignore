@@ -207,3 +207,10 @@ marimo/_lsp/
 __marimo__/
 *.docx
 typora-user-images/
+
+# md-docx 审校桥运行时产物
+review/
+tests/__pycache__/
+tests/fixtures/tmp/
+*.docx.base
+.pytest_cache/
