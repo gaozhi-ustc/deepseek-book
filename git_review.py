@@ -294,3 +294,72 @@ def resolve_baseline(docx_path: str,
         'resolve_baseline 四级回退全部失败：metadata/filename/sidecar/cli 都未命中。'
         '请使用 --base <sha> --path <relpath> 明确指定。'
     )
+
+
+# ──────────────────────────────────────────────────────────
+# detect_reviewer
+# ──────────────────────────────────────────────────────────
+
+def _slugify(name: str) -> str:
+    """中文 → 拼音（全拼，不带声调，小写），英文 → kebab-case。"""
+    from pypinyin import lazy_pinyin
+
+    # 先把中文转拼音，英文保持
+    parts = lazy_pinyin(name)
+    joined = ''.join(parts).strip().lower()
+
+    # 保留字母数字，空白改连字符，其余丢掉
+    out = []
+    for ch in joined:
+        if ch.isalnum():
+            out.append(ch)
+        elif ch.isspace():
+            out.append('-')
+    slug = ''.join(out)
+
+    # 合并连续连字符
+    while '--' in slug:
+        slug = slug.replace('--', '-')
+    slug = slug.strip('-')
+    return slug or 'unknown'
+
+
+def _majority_docx_ins_author(docx_path: str) -> Optional[str]:
+    """从 docx 的 <w:ins w:author> 中取出现次数最多的一个，无则 None。"""
+    try:
+        with zipfile.ZipFile(docx_path, 'r') as z:
+            if 'word/document.xml' not in z.namelist():
+                return None
+            data = z.read('word/document.xml')
+    except (zipfile.BadZipFile, KeyError):
+        return None
+
+    root = etree.fromstring(data)
+    w_ns = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    from collections import Counter
+    c = Counter()
+    for ins in root.iter(f'{{{w_ns}}}ins'):
+        a = ins.get(f'{{{w_ns}}}author')
+        if a:
+            c[a] += 1
+    if not c:
+        return None
+    return c.most_common(1)[0][0]
+
+
+def detect_reviewer(cli_reviewer: Optional[str],
+                    reviewed_docx_path: str) -> Tuple[str, str]:
+    """返回 (display_name, slug)。
+
+    优先级：CLI > docx <w:ins w:author> 多数值 > 'unknown'
+    """
+    if cli_reviewer and cli_reviewer.strip():
+        name = cli_reviewer.strip()
+        return name, _slugify(name)
+
+    if reviewed_docx_path and os.path.exists(reviewed_docx_path):
+        a = _majority_docx_ins_author(reviewed_docx_path)
+        if a:
+            return a, _slugify(a)
+
+    return 'unknown', 'unknown'

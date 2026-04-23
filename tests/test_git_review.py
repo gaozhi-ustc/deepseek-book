@@ -218,3 +218,39 @@ def test_resolve_baseline_metadata_path_missing(tmp_path, tmp_git_repo):
     stamp_docx_metadata(str(docx), sha, sha, 'no_such_file.md', 't')
     with pytest.raises(GitReviewError, match='SourcePath'):
         resolve_baseline(str(docx), repo=str(tmp_git_repo))
+
+
+# ── detect_reviewer ───────────────────────────────────────
+from git_review import detect_reviewer
+
+
+def test_detect_reviewer_cli_wins_over_docx(tmp_path):
+    d = tmp_path / 'x.docx'
+    _make_bare_docx(d)
+    name, slug = detect_reviewer(cli_reviewer='张三',
+                                 reviewed_docx_path=str(d))
+    assert name == '张三'
+    assert slug == 'zhangsan'
+
+
+def test_detect_reviewer_english_name():
+    name, slug = detect_reviewer(cli_reviewer='John Doe',
+                                 reviewed_docx_path='')
+    assert name == 'John Doe'
+    assert slug == 'john-doe'
+
+
+def test_detect_reviewer_mixed_and_trimmed():
+    name, slug = detect_reviewer(cli_reviewer='  张三_Reviewer  ',
+                                 reviewed_docx_path='')
+    assert name == '张三_Reviewer'
+    assert slug == 'zhangsanreviewer'
+
+
+def test_detect_reviewer_fallback_unknown(tmp_path):
+    d = tmp_path / 'x.docx'
+    _make_bare_docx(d)
+    name, slug = detect_reviewer(cli_reviewer=None,
+                                 reviewed_docx_path=str(d))
+    assert name == 'unknown'
+    assert slug == 'unknown'
