@@ -400,3 +400,68 @@ def test_comment_pure_opinion_becomes_opinion(tmp_path, monkeypatch):
     cos = [e for e in edits if e.reason == 'comment_opinion']
     assert len(cos) == 1
     assert '张三' in cos[0].replacement
+
+
+def test_apply_edits_replace_single_line():
+    from docx_to_md import apply_edits_to_md
+    base = 'A\nB\nC\n'
+    edits = [MdEdit(target_line_range=(1, 2),
+                    replacement='BB', reason='text_edit')]
+    new_text, warnings = apply_edits_to_md(base, edits)
+    assert new_text == 'A\nBB\nC\n'
+    assert warnings == []
+
+
+def test_apply_edits_multiple_in_order_descending():
+    from docx_to_md import apply_edits_to_md
+    base = 'A\nB\nC\nD\n'
+    edits = [
+        MdEdit(target_line_range=(0, 1), replacement='A1', reason='text_edit'),
+        MdEdit(target_line_range=(3, 4), replacement='D1', reason='text_edit'),
+    ]
+    new_text, warnings = apply_edits_to_md(base, edits)
+    assert new_text == 'A1\nB\nC\nD1\n'
+    assert warnings == []
+
+
+def test_apply_edits_delete():
+    from docx_to_md import apply_edits_to_md
+    base = 'A\nB\nC\n'
+    edits = [MdEdit(target_line_range=(1, 2), replacement='', reason='delete')]
+    new_text, _ = apply_edits_to_md(base, edits)
+    assert new_text == 'A\nC\n'
+
+
+def test_apply_edits_insert():
+    from docx_to_md import apply_edits_to_md
+    base = 'A\nB\n'
+    edits = [MdEdit(target_line_range=(1, 1),
+                    replacement='NEW', reason='insert')]
+    new_text, _ = apply_edits_to_md(base, edits)
+    assert new_text == 'A\nNEW\nB\n'
+
+
+def test_apply_edits_conflict_warns_and_second_wins():
+    from docx_to_md import apply_edits_to_md
+    base = 'A\nB\nC\n'
+    edits = [
+        MdEdit(target_line_range=(1, 2), replacement='X',
+               reason='text_edit', provenance='first'),
+        MdEdit(target_line_range=(1, 2), replacement='Y',
+               reason='text_edit', provenance='second'),
+    ]
+    new_text, warnings = apply_edits_to_md(base, edits)
+    # 后者（second）覆盖前者
+    assert new_text == 'A\nY\nC\n'
+    assert len(warnings) == 1
+    assert 'first' in warnings[0]
+
+
+def test_apply_edits_opinion_appends_newline():
+    from docx_to_md import apply_edits_to_md
+    base = 'A\nB\n'
+    edits = [MdEdit(target_line_range=(1, 1),
+                    replacement='\n<!-- REVIEWER: x -->',
+                    reason='comment_opinion')]
+    new_text, _ = apply_edits_to_md(base, edits)
+    assert new_text == 'A\n\n<!-- REVIEWER: x -->\nB\n'

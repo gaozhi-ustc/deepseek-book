@@ -616,3 +616,64 @@ def _emit_formula_attachment(eq: EquationBlock, idx: int) -> None:
             )
         except (_subprocess.CalledProcessError, _subprocess.TimeoutExpired):
             pass
+
+
+# ──────────────────────────────────────────────────────────
+# 应用 MdEdit 到基线 md 文本
+# ──────────────────────────────────────────────────────────
+
+def _ranges_overlap(a: Tuple[int, int], b: Tuple[int, int]) -> bool:
+    """半开区间 [s, e) 是否重叠。相邻（插入在同一点）不算重叠，
+    但同点的两个点插入视为重叠。"""
+    as_, ae = a
+    bs_, be = b
+    if as_ == ae and bs_ == be:
+        return as_ == bs_
+    return as_ < be and bs_ < ae
+
+
+def apply_edits_to_md(baseline_text: str,
+                      edits: List[MdEdit]) -> Tuple[str, List[str]]:
+    """按 target_line_range 逆序（[0] 从大到小）应用 edits。
+
+    冲突：两条 range 重叠 → 后者覆盖前者，前者记入 warnings 列表。
+    返回 (new_text, warnings)。
+    """
+    warnings: List[str] = []
+    if not edits:
+        return baseline_text, warnings
+
+    sorted_edits = sorted(edits, key=lambda e: (e.target_line_range[0],
+                                                e.target_line_range[1]))
+
+    # 检测重叠
+    effective: List[MdEdit] = []
+    for e in sorted_edits:
+        conflict = None
+        for keep in effective:
+            if _ranges_overlap(e.target_line_range, keep.target_line_range):
+                conflict = keep
+                break
+        if conflict is not None:
+            warnings.append(
+                f'conflict: edit at {e.target_line_range} (reason={e.reason}, '
+                f'provenance={e.provenance}) overlaps with earlier edit at '
+                f'{conflict.target_line_range} '
+                f'(reason={conflict.reason}, provenance={conflict.provenance}); '
+                f'{conflict.provenance!r} dropped, '
+                f'{e.provenance!r} kept'
+            )
+            effective.remove(conflict)
+        effective.append(e)
+
+    # 逆序应用
+    effective.sort(key=lambda e: e.target_line_range[0], reverse=True)
+    lines = baseline_text.splitlines(keepends=True)
+    for e in effective:
+        s, t = e.target_line_range
+        if e.replacement == '':
+            lines[s:t] = []
+        else:
+            lines[s:t] = [e.replacement + '\n']
+
+    return ''.join(lines), warnings
