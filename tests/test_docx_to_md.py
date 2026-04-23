@@ -73,3 +73,83 @@ def test_match_blocks_table_shape_changed():
     m = match_blocks(base, rev)
     assert len(m) == 1
     assert m[0].kind == 'struct_change'
+
+
+from docx_to_md import make_edits
+
+
+def test_make_edits_paragraph_text_edit():
+    base_md = '这是第一段。\n\n这是第二段。\n'
+    rev_blocks = [
+        ParagraphBlock(text='这是第一段。', raw='这是第一段。'),
+        ParagraphBlock(text='这是改过的第二段。', raw='这是改过的第二段。'),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    # 只有一条 text_edit
+    assert len(edits) == 1
+    e = edits[0]
+    assert e.reason == 'text_edit'
+    assert '改过的第二段' in e.replacement
+    # 第二段在 base_md 里的行号
+    assert e.target_line_range == (2, 3)
+
+
+def test_make_edits_heading_text_edit_preserves_level():
+    base_md = '## 旧标题\n\n正文\n'
+    rev_blocks = [
+        HeadingBlock(level=2, text='新标题', raw='新标题'),
+        ParagraphBlock(text='正文', raw='正文'),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    assert len(edits) == 1
+    assert edits[0].reason == 'text_edit'
+    assert edits[0].replacement == '## 新标题'
+
+
+def test_make_edits_heading_level_change():
+    base_md = '## 同文本\n'
+    rev_blocks = [HeadingBlock(level=3, text='同文本', raw='同文本')]
+    edits = make_edits(base_md, rev_blocks)
+    assert len(edits) == 1
+    # 级别改到 ### 同文本
+    assert edits[0].replacement == '### 同文本'
+
+
+def test_make_edits_equal_produces_no_edits():
+    base_md = '第一段。\n\n第二段。\n'
+    rev_blocks = [
+        ParagraphBlock(text='第一段。', raw='第一段。'),
+        ParagraphBlock(text='第二段。', raw='第二段。'),
+    ]
+    assert make_edits(base_md, rev_blocks) == []
+
+
+def test_make_edits_insert_inserts_after_preceding_equal():
+    base_md = '段一。\n\n段二。\n'
+    rev_blocks = [
+        ParagraphBlock(text='段一。', raw='段一。'),
+        ParagraphBlock(text='新插入段。', raw='新插入段。'),
+        ParagraphBlock(text='段二。', raw='段二。'),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    assert len(edits) == 1
+    e = edits[0]
+    assert e.reason == 'insert'
+    # 插在"段一。"后（位置索引 1 之后，且保持 blank 行）
+    assert e.target_line_range[0] == 1
+    assert e.target_line_range[1] == 1  # 插入不删除
+    assert '新插入段。' in e.replacement
+
+
+def test_make_edits_delete_removes_block_lines():
+    base_md = '段一。\n\n要删。\n\n段二。\n'
+    rev_blocks = [
+        ParagraphBlock(text='段一。', raw='段一。'),
+        ParagraphBlock(text='段二。', raw='段二。'),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    assert len(edits) == 1
+    e = edits[0]
+    assert e.reason == 'delete'
+    assert e.replacement == ''
+    assert e.target_line_range == (2, 3)  # "要删。"一行

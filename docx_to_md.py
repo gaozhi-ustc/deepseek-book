@@ -122,3 +122,165 @@ def match_blocks(base: List[Block], rev: List[Block]) -> List[BlockMatch]:
                 matches.append(BlockMatch(None, b, 'insert'))
 
     return matches
+
+
+# ──────────────────────────────────────────────────────────
+# 行号定位 — 用 md_core.tokenize 的 block.raw 对齐原文
+# ──────────────────────────────────────────────────────────
+
+def parse_md_blocks_with_spans(md_text: str):
+    """返回 [(Block, start_line, end_line)]，行号 0-indexed 半开区间。
+
+    实现：
+      - 拿到 Block 列表
+      - 每个 Block.raw 在原文里按首行匹配定位起点
+      - end = start + raw 行数
+    对 BlankBlock 占一行；对无 raw 的 Block 宽松兜底 cursor~cursor+1。
+    """
+    blocks = parse_md_blocks(md_text)
+    lines = md_text.splitlines(keepends=True)
+    result = []
+    cursor = 0
+    for b in blocks:
+        if isinstance(b, BlankBlock):
+            start = cursor
+            end = cursor + 1 if cursor < len(lines) else cursor
+            cursor = end
+            result.append((b, start, end))
+            continue
+        raw = b.raw if hasattr(b, 'raw') else ''
+        if not raw:
+            start = cursor
+            end = cursor + 1 if cursor < len(lines) else cursor
+            cursor = end
+            result.append((b, start, end))
+            continue
+
+        raw_lines = raw.split('\n')
+        n = len(raw_lines)
+        # 期望从 cursor 起就是该 block；若不是，向前扫描至多 4 行
+        matched_start = None
+        limit = min(cursor + 4, len(lines))
+        for k in range(cursor, limit):
+            # 构造 lines[k:k+n] 的拼接（去尾换行）作为比较串
+            slice_text = ''.join(lines[k:k + n])
+            expected = '\n'.join(raw_lines)
+            # 若 slice_text 比 expected 多一个换行，补齐
+            if slice_text.rstrip('\n') == expected.rstrip('\n'):
+                matched_start = k
+                break
+        if matched_start is None:
+            matched_start = cursor
+        start = matched_start
+        end = start + n
+        cursor = end
+        result.append((b, start, end))
+    return result
+
+
+# ──────────────────────────────────────────────────────────
+# _render_block_md — 把 Block 渲染回 md 源码
+# ──────────────────────────────────────────────────────────
+
+def _render_block_md(block: Block) -> str:
+    """把一个 Block 渲染回单块 md 源码（不含末尾换行）。"""
+    if isinstance(block, HeadingBlock):
+        return '#' * block.level + ' ' + block.text
+    if isinstance(block, ParagraphBlock):
+        return block.text
+    if isinstance(block, EquationBlock):
+        latex = block.latex
+        if latex.startswith('@omml:'):
+            return f'<!-- REVIEW: formula content see attachments -->'
+        return f'$${latex}$$'
+    if isinstance(block, CodeBlock):
+        return f'```{block.language}\n{block.code.rstrip()}\n```'
+    if isinstance(block, ListBlock):
+        if block.ordered:
+            return '\n'.join(f'{i+1}. {it}' for i, it in enumerate(block.items))
+        return '\n'.join(f'- {it}' for it in block.items)
+    if isinstance(block, TableBlock):
+        head = '| ' + ' | '.join(block.header) + ' |'
+        sep  = '|' + '|'.join(['---'] * len(block.header)) + '|'
+        rows = '\n'.join('| ' + ' | '.join(r) + ' |' for r in block.rows)
+        return '\n'.join([head, sep, rows]) if rows else '\n'.join([head, sep])
+    if isinstance(block, FigureBlock):
+        return f'![{block.alt}]({block.path})'
+    return ''
+
+
+def _find_insertion_line(matches_with_span: list, idx: int) -> int:
+    """给 matches_with_span 里第 idx 条 insert，找到前一个 equal/text_edit
+    的 end_line 作为插入行；没有则返回 0。
+    """
+    for j in range(idx - 1, -1, -1):
+        m, span = matches_with_span[j]
+        if m.kind in ('equal', 'text_edit') and span is not None:
+            return span[1]
+    return 0
+
+
+# ──────────────────────────────────────────────────────────
+# make_edits — 产出 MdEdit 列表
+# ──────────────────────────────────────────────────────────
+
+def make_edits(baseline_md_text: str,
+               reviewed_blocks: List[Block]) -> List[MdEdit]:
+    baseline_with_spans = parse_md_blocks_with_spans(baseline_md_text)
+    base_blocks = [b for (b, _, _) in baseline_with_spans
+                   if not isinstance(b, BlankBlock)]
+    base_spans = {id(b): (s, e) for (b, s, e) in baseline_with_spans
+                  if not isinstance(b, BlankBlock)}
+
+    rev_blocks = [b for b in reviewed_blocks if not isinstance(b, BlankBlock)]
+
+    matches = match_blocks(base_blocks, rev_blocks)
+
+    matches_with_span = []
+    for m in matches:
+        span = base_spans.get(id(m.base_block)) if m.base_block is not None else None
+        matches_with_span.append((m, span))
+
+    edits: List[MdEdit] = []
+    for idx, (m, span) in enumerate(matches_with_span):
+        if m.kind == 'equal':
+            continue
+        if m.kind == 'text_edit':
+            if span is None:
+                continue
+            new_md = _render_block_md(m.reviewed_block)
+            edits.append(MdEdit(
+                target_line_range=span,
+                replacement=new_md,
+                reason='text_edit',
+                provenance=f'paragraph edit at line {span[0] + 1}',
+            ))
+        elif m.kind == 'struct_change':
+            if span is None:
+                continue
+            new_md = _render_block_md(m.reviewed_block)
+            edits.append(MdEdit(
+                target_line_range=span,
+                replacement=new_md,
+                reason='struct_change',
+                provenance=f'struct change at line {span[0] + 1}',
+            ))
+        elif m.kind == 'delete':
+            if span is None:
+                continue
+            edits.append(MdEdit(
+                target_line_range=span,
+                replacement='',
+                reason='delete',
+                provenance=f'block deleted at line {span[0] + 1}',
+            ))
+        elif m.kind == 'insert':
+            insert_at = _find_insertion_line(matches_with_span, idx)
+            new_md = _render_block_md(m.reviewed_block)
+            edits.append(MdEdit(
+                target_line_range=(insert_at, insert_at),
+                replacement=new_md,
+                reason='insert',
+                provenance=f'block inserted before line {insert_at + 1}',
+            ))
+    return edits
