@@ -200,3 +200,42 @@ def test_make_edits_code_language_preserved_from_baseline():
     ]
     edits = make_edits(base_md, rev_blocks)
     assert '```python' in edits[0].replacement
+
+
+def test_make_edits_table_cell_changes_same_shape():
+    base_md = (
+        '| A | B | C |\n'
+        '|---|---|---|\n'
+        '| 1 | 2 | 3 |\n'
+        '| 4 | 5 | 6 |\n'
+    )
+    rev_blocks = [
+        TableBlock(header=['A', 'B', 'C'],
+                   rows=[['1', 'X', '3'], ['4', '5', 'Y']],
+                   caption='', raw=''),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    # 两个 cell 改动 → 两条 cell_edit
+    cell_edits = [e for e in edits if e.reason == 'cell_edit']
+    assert len(cell_edits) == 2
+    # 第一条改在基线第 3 行（0-index=2），replacement 覆盖整行
+    first = [e for e in cell_edits if e.target_line_range == (2, 3)][0]
+    assert first.replacement == '| 1 | X | 3 |'
+    second = [e for e in cell_edits if e.target_line_range == (3, 4)][0]
+    assert second.replacement == '| 4 | 5 | Y |'
+
+
+def test_make_edits_table_struct_change_replaces_whole_block():
+    base_md = (
+        '| A | B |\n'
+        '|---|---|\n'
+        '| 1 | 2 |\n'
+    )
+    rev_blocks = [
+        TableBlock(header=['A', 'B', 'C'],
+                   rows=[['1', '2', '3']], caption='', raw=''),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    assert len(edits) == 1
+    assert edits[0].reason == 'struct_change'
+    assert '| A | B | C |' in edits[0].replacement

@@ -290,6 +290,39 @@ def make_edits(baseline_md_text: str,
                     provenance=f'code block edit at line {span[0] + 1}',
                 ))
                 continue
+            # table 特化：同形状走 cell_edit 精确替换
+            if (isinstance(m.base_block, TableBlock)
+                    and isinstance(m.reviewed_block, TableBlock)):
+                bb, rb = m.base_block, m.reviewed_block
+                if (len(bb.header) == len(rb.header)
+                        and len(bb.rows) == len(rb.rows)):
+                    start = span[0]
+                    produced = False
+                    if bb.header != rb.header:
+                        new_line = '| ' + ' | '.join(rb.header) + ' |'
+                        edits.append(MdEdit(
+                            target_line_range=(start, start + 1),
+                            replacement=new_line,
+                            reason='cell_edit',
+                            provenance=f'table header edit at line {start + 1}',
+                        ))
+                        produced = True
+                    for k, (orow, nrow) in enumerate(zip(bb.rows, rb.rows)):
+                        if orow != nrow:
+                            # header 行占 span.start；分隔行 = start + 1；数据行 k = start + 2 + k
+                            line_no = start + 2 + k
+                            new_line = '| ' + ' | '.join(nrow) + ' |'
+                            edits.append(MdEdit(
+                                target_line_range=(line_no, line_no + 1),
+                                replacement=new_line,
+                                reason='cell_edit',
+                                provenance=f'table cell edit at line {line_no + 1}',
+                            ))
+                            produced = True
+                    if produced:
+                        continue
+                    # 完全相同 — 不产出 edit
+                    continue
             new_md = _render_block_md(m.reviewed_block)
             edits.append(MdEdit(
                 target_line_range=span,
