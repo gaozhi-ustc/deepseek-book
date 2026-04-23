@@ -239,3 +239,53 @@ def test_make_edits_table_struct_change_replaces_whole_block():
     assert len(edits) == 1
     assert edits[0].reason == 'struct_change'
     assert '| A | B | C |' in edits[0].replacement
+
+
+def test_make_edits_figure_replace_writes_new_file(tmp_path, monkeypatch):
+    from docx_to_md import make_edits_with_media
+
+    base_md = '![旧](./typora-user-images/old.png)\n\n正文。\n'
+
+    new_bytes = b'fake png bytes v2'
+    new_sha = hashlib.sha256(new_bytes).hexdigest()
+    short = new_sha[:8]
+
+    rev_blocks = [
+        FigureBlock(alt='新', path=f'@media:image7.png:{new_sha}',
+                    caption='', raw=''),
+        ParagraphBlock(text='正文。', raw='正文。'),
+    ]
+    media = {new_sha: new_bytes}
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / 'typora-user-images').mkdir()
+
+    edits = make_edits_with_media(base_md, rev_blocks, media)
+
+    figure_edits = [e for e in edits if e.reason == 'figure_replaced']
+    assert len(figure_edits) == 1
+    e = figure_edits[0]
+    assert e.target_line_range == (0, 1)
+    assert f'typora-user-images/img-{short}.png' in e.replacement
+    # 文件应已写入
+    out_file = tmp_path / 'typora-user-images' / f'img-{short}.png'
+    assert out_file.exists()
+    assert out_file.read_bytes() == new_bytes
+
+
+def test_make_edits_figure_same_sha_no_change(tmp_path, monkeypatch):
+    """当 reviewed FigureBlock.path 中 sha 的前 8 位与 baseline 的
+    img-<sha8>.png 一致，视为同图，不产出 figure_replaced。"""
+    from docx_to_md import make_edits_with_media
+    base_md = '![alt](./typora-user-images/img-aaaaaaaa.png)\n'
+    sha = 'a' * 64  # 前 8 位 "aaaaaaaa" 等同于文件名
+    rev_blocks = [
+        FigureBlock(alt='alt',
+                    path=f'@media:image1.png:{sha}',
+                    caption='', raw=''),
+    ]
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / 'typora-user-images').mkdir()
+    edits = make_edits_with_media(base_md, rev_blocks, {sha: b'x'})
+    # 期望不产出 figure_replaced
+    assert not any(e.reason == 'figure_replaced' for e in edits)

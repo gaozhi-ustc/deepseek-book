@@ -136,6 +136,20 @@ def match_blocks(base: List[Block], rev: List[Block]) -> List[BlockMatch]:
             pairs = min(len(a_chunk), len(b_chunk))
             for k in range(pairs):
                 a, b = a_chunk[k], b_chunk[k]
+                # 同位置同类 Figure/Table 无条件视为 text_edit / struct_change
+                # （路径/结构差大使 ratio 低，但业务语义上还是同一个图/表被改）
+                same_figure = (isinstance(a, FigureBlock) and isinstance(b, FigureBlock))
+                same_table  = (isinstance(a, TableBlock)  and isinstance(b, TableBlock))
+                if same_figure:
+                    matches.append(BlockMatch(a, b, 'text_edit'))
+                    continue
+                if same_table:
+                    if _is_struct_change(a, b):
+                        matches.append(BlockMatch(a, b, 'struct_change'))
+                    else:
+                        matches.append(BlockMatch(a, b, 'text_edit'))
+                    continue
+
                 r = _ratio(a, b)
                 if r >= 0.5:
                     if _is_struct_change(a, b):
@@ -359,3 +373,98 @@ def make_edits(baseline_md_text: str,
                 provenance=f'block inserted before line {insert_at + 1}',
             ))
     return edits
+
+
+# ──────────────────────────────────────────────────────────
+# Figure 处理（make_edits_with_media）
+# ──────────────────────────────────────────────────────────
+
+_FIGURE_FILENAME_RE = re.compile(r'img-([0-9a-f]{8,})\.png$', re.IGNORECASE)
+
+
+def _figure_sha_from_reviewed(fb: FigureBlock) -> Optional[str]:
+    """从 reviewed FigureBlock.path = '@media:<filename>:<sha>' 拿出 sha。"""
+    if not fb.path.startswith('@media:'):
+        return None
+    parts = fb.path.split(':')
+    if len(parts) != 3:
+        return None
+    return parts[2]
+
+
+def _figure_sha_short_from_baseline(fb: FigureBlock) -> Optional[str]:
+    """从 baseline 路径里 img-<sha8>.png 拿 8 位 sha。"""
+    m = _FIGURE_FILENAME_RE.search(fb.path or '')
+    return m.group(1) if m else None
+
+
+def _maybe_persist_figure(sha: str, bytes_data: bytes,
+                          image_dir: str = 'typora-user-images') -> str:
+    """若 img-<sha8>.png 不存在则写入；返回相对路径（带 ./）。"""
+    os.makedirs(image_dir, exist_ok=True)
+    fn = f'img-{sha[:8]}.png'
+    out_path = os.path.join(image_dir, fn)
+    if not os.path.exists(out_path):
+        with open(out_path, 'wb') as f:
+            f.write(bytes_data)
+    return f'./{image_dir}/{fn}'
+
+
+def make_edits_with_media(baseline_md_text: str,
+                          reviewed_blocks: List[Block],
+                          media: dict) -> List[MdEdit]:
+    """make_edits 的扩展：接收 media dict {sha -> bytes}，
+    在 FigureBlock text_edit 时落盘新图并改 md path。"""
+    edits = make_edits(baseline_md_text, reviewed_blocks)
+
+    baseline_with_spans = parse_md_blocks_with_spans(baseline_md_text)
+    base_blocks = [b for (b, _, _) in baseline_with_spans
+                   if not isinstance(b, BlankBlock)]
+    base_spans = {id(b): (s, e) for (b, s, e) in baseline_with_spans
+                  if not isinstance(b, BlankBlock)}
+    rev_blocks = [b for b in reviewed_blocks if not isinstance(b, BlankBlock)]
+    matches = match_blocks(base_blocks, rev_blocks)
+
+    # 构建 line_range -> edit 的索引以便覆盖
+    edits_by_range = {(e.target_line_range, e.reason): e for e in edits}
+
+    for m in matches:
+        if m.kind not in ('text_edit', 'struct_change'):
+            continue
+        if not (isinstance(m.base_block, FigureBlock) and
+                isinstance(m.reviewed_block, FigureBlock)):
+            continue
+        span = base_spans.get(id(m.base_block))
+        if span is None:
+            continue
+
+        rev_sha = _figure_sha_from_reviewed(m.reviewed_block)
+        base_sha_short = _figure_sha_short_from_baseline(m.base_block)
+
+        # 前 8 位命中则视为同图：移除已有 edit（若有）
+        if rev_sha and base_sha_short and rev_sha[:8] == base_sha_short:
+            for key in list(edits_by_range.keys()):
+                if key[0] == span:
+                    edits_by_range.pop(key, None)
+            continue
+
+        # 落盘 + 产出 figure_replaced
+        bytes_data = media.get(rev_sha) if rev_sha else None
+        if bytes_data is None:
+            new_path = m.reviewed_block.path if not m.reviewed_block.path.startswith('@media:') else ''
+        else:
+            new_path = _maybe_persist_figure(rev_sha, bytes_data)
+        alt = m.reviewed_block.alt or m.base_block.alt
+        new_md = f'![{alt}]({new_path})'
+
+        for key in list(edits_by_range.keys()):
+            if key[0] == span:
+                edits_by_range.pop(key, None)
+        edits_by_range[(span, 'figure_replaced')] = MdEdit(
+            target_line_range=span,
+            replacement=new_md,
+            reason='figure_replaced',
+            provenance=f'figure replace at line {span[0] + 1}, sha={rev_sha[:8] if rev_sha else "?"}',
+        )
+
+    return list(edits_by_range.values())
