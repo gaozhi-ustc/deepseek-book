@@ -628,7 +628,7 @@ CUDA Graph 兼容性：
 
 3FS 整体架构如图 3-2 所示。
 
-![img](https://ucc.alicdn.com/pic/developer-ecology/egrfphh63agms_b766d4375aaa407196e785c63515b844.jpeg?x-oss-process=image%2Fresize%2Cw_1400%2Cm_lfit%2Fformat%2Cwebp)
+![egrfphh63agms_b766d4375aaa407196e785c63515b844](./typora-user-images/egrfphh63agms_b766d4375aaa407196e785c63515b844.jpeg)
 
 图 3-2 3FS 整体架构
 
@@ -787,7 +787,7 @@ ChunkStorage 本身提供了三个基础的功能如下:
 
 3FS 的数据面通信完全基于 RDMA（Remote Direct Memory Access），实现零拷贝数据传输。RDMA 通信架构如图 3-5 所示。
 
-![RDMA 通信架构图](./aliyun/基于RDMA的3FS网络通信模块源码分析-开发者社区-阿里云_files/egrfphh63agms_25a5db1debe24a07a46ef20d5ed9a8af.png)
+![egrfphh63agms_25a5db1debe24a07a46ef20d5ed9a8af](./typora-user-images/egrfphh63agms_25a5db1debe24a07a46ef20d5ed9a8af.png)
 
 图 3-5 3FS RDMA 通信架构
 
@@ -881,7 +881,7 @@ $$\text{CRC}_{\mathrm{32C}}(D) = D(x) \cdot x^{32} \mod G(x) $$
 
 3FS 客户端架构如图 3-7 所示。
 
-![客户端架构图](./aliyun/DeepSeek%203FS客户端架构及Fuse与USRBIO模式源码分析-开发者社区-阿里云_files/egrfphh63agms_a38583828ac9458c8d1191ab5aa013fb.png)
+![egrfphh63agms_a38583828ac9458c8d1191ab5aa013fb](./typora-user-images/egrfphh63agms_a38583828ac9458c8d1191ab5aa013fb.png)
 
 图 3-7 3FS 客户端架构
 
@@ -907,7 +907,7 @@ lor（Large Object of Rings）：
 
 共享内存架构如图 3-8 所示。
 
-![共享内存架构图](./aliyun/DeepSeek%203FS客户端架构及Fuse与USRBIO模式源码分析-开发者社区-阿里云_files/egrfphh63agms_bc930d7cd0094c44895d2b37ea971a13.png)
+![egrfphh63agms_bc930d7cd0094c44895d2b37ea971a13](./typora-user-images/egrfphh63agms_bc930d7cd0094c44895d2b37ea971a13.png)
 
 图 3-8 3FS 共享内存架构
 
@@ -1461,7 +1461,7 @@ phy2log, log2phy, logcnt = eplb.rebalance_experts(
 
 上述分层负载均衡策略生成专家复制和放置方案如图 3-12 所示。
 
-![img](https://github.com/deepseek-ai/EPLB/raw/main/example.png)
+![eplb_example](./typora-user-images/eplb_example.png)
 
 图 3-12 分层负载均衡策略生成专家复制和放置方案
 
