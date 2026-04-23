@@ -206,3 +206,33 @@ def make_doc_rels_with_image(rel_id: str, media_file: str) -> str:
         f'Target="media/{media_file}"/>\n'
         '</Relationships>\n'
     )
+
+
+def make_paragraph_with_comment(before: str, anchor: str, after: str,
+                                 comment_id: int) -> str:
+    return (
+        '<w:p>'
+        f'<w:r><w:t xml:space="preserve">{before}</w:t></w:r>'
+        f'<w:commentRangeStart w:id="{comment_id}"/>'
+        f'<w:r><w:t xml:space="preserve">{anchor}</w:t></w:r>'
+        f'<w:commentRangeEnd w:id="{comment_id}"/>'
+        f'<w:r><w:commentReference w:id="{comment_id}"/></w:r>'
+        f'<w:r><w:t xml:space="preserve">{after}</w:t></w:r>'
+        '</w:p>'
+    )
+
+
+def make_comments_xml(entries: list[dict]) -> str:
+    """entries: [{id, author, date, text}]"""
+    ns = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    items = []
+    for e in entries:
+        items.append(
+            f'  <w:comment w:id="{e["id"]}" w:author="{e["author"]}" '
+            f'w:date="{e["date"]}" w:initials="">'
+            f'<w:p><w:r><w:t xml:space="preserve">{e["text"]}</w:t></w:r></w:p>'
+            f'</w:comment>'
+        )
+    return (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+            f'<w:comments xmlns:w="{ns}">\n' +
+            '\n'.join(items) + '\n</w:comments>\n')

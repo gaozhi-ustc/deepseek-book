@@ -104,6 +104,11 @@ def _paragraph_accepted_text_and_revisions(p_el):
 
         if tag == 'r':
             _emit(_text_of_w_t(child))
+            # w:r 内可能嵌有 commentReference（无 range 的孤立批注）
+            for cr in child.findall(f'{W}commentReference'):
+                cid = int(cr.get(f'{W}id', '0') or 0)
+                if cid not in comment_spans:
+                    comment_spans[cid] = (_len(), _len())
         elif tag == 'ins':
             ins_text = ''
             for r in child.findall(f'{W}r'):
@@ -213,6 +218,8 @@ def read_docx(path: str) -> List[Block]:
     if body is None:
         return []
 
+    comments_map = _parse_comments_bundle(bundle.get('comments'))
+
     blocks: List[Block] = []
     list_buf_items: List[str] = []
     list_buf_ordered: Optional[bool] = None
@@ -260,6 +267,21 @@ def read_docx(path: str) -> List[Block]:
         is_code = _is_code_paragraph(child)
         text, revisions, _comments_raw = _paragraph_accepted_text_and_revisions(child)
 
+        # 把本段 comment_spans 映射为 Comment 列表
+        block_comments: List[Comment] = []
+        for cid, (s, e) in _comments_raw.items():
+            info = comments_map.get(cid)
+            if info is None:
+                continue
+            block_comments.append(Comment(
+                comment_id=cid,
+                author=info['author'],
+                date=info['date'],
+                text=info['text'],
+                anchor_text=text[s:e],
+                anchor_range=(s, e),
+            ))
+
         # 先检测公式段 — 段落里出现 m:oMath 直接产 EquationBlock
         omaths = child.findall(f'.//{{{M_NS}}}oMath')
         if omaths:
@@ -296,7 +318,8 @@ def read_docx(path: str) -> List[Block]:
         if hlevel is not None:
             _flush_list(); _flush_code()
             blocks.append(HeadingBlock(level=hlevel, text=text, raw=text,
-                                       revisions=revisions, comments=[]))
+                                       revisions=revisions,
+                                       comments=block_comments))
             continue
 
         if nid is not None:
@@ -307,6 +330,8 @@ def read_docx(path: str) -> List[Block]:
             if list_buf_ordered != ordered:
                 _flush_list()
                 list_buf_ordered = ordered
+            # list item 级 comments 由 docx_to_md 层在 classify 阶段处理，
+            # 这里仅收 text；未来可扩展到 list 级 comments
             list_buf_items.append(text)
             continue
 
@@ -320,7 +345,8 @@ def read_docx(path: str) -> List[Block]:
             blocks.append(BlankBlock(raw=''))
         else:
             blocks.append(ParagraphBlock(text=text, raw=text,
-                                         revisions=revisions, comments=[]))
+                                         revisions=revisions,
+                                         comments=block_comments))
 
     _flush_list(); _flush_code()
     return blocks
@@ -378,6 +404,26 @@ def _parse_document_rels(rels_bytes: Optional[bytes]) -> dict:
     out = {}
     for rel in root.findall(f'{{{ns}}}Relationship'):
         out[rel.get('Id')] = rel.get('Target')
+    return out
+
+
+def _parse_comments_bundle(comments_bytes: Optional[bytes]) -> dict:
+    """返回 {comment_id: {author, date, text}}"""
+    if not comments_bytes:
+        return {}
+    root = etree.fromstring(comments_bytes)
+    out = {}
+    for c in root.findall(f'{W}comment'):
+        cid = int(c.get(f'{W}id', '0') or 0)
+        # 把所有 w:t 文本拼起来
+        text_parts = []
+        for t in c.iter(f'{W}t'):
+            text_parts.append(t.text or '')
+        out[cid] = {
+            'author': c.get(f'{W}author', ''),
+            'date': c.get(f'{W}date', ''),
+            'text': ''.join(text_parts),
+        }
     return out
 
 

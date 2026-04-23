@@ -255,3 +255,53 @@ def test_read_figure_missing_rel_falls_back_to_alt_only(tmp_path):
     assert len(figs) == 1
     assert figs[0].alt == '孤立图'
     assert figs[0].path == ''
+
+
+from tests.fixtures.build_min_docx import (
+    make_paragraph_with_comment, make_comments_xml,
+)
+
+
+def test_read_paragraph_with_one_comment(tmp_path):
+    body = make_paragraph_with_comment(
+        before='前段', anchor='此处', after='后段', comment_id=0)
+    cxml = make_comments_xml([{
+        'id': 0, 'author': '王五',
+        'date': '2026-04-23T00:00:00Z', 'text': '这句不通',
+    }])
+    docx = tmp_path / 'c.docx'
+    write_docx(str(docx), body, comments_xml=cxml)
+    blocks = read_docx(str(docx))
+    paras = [b for b in blocks if isinstance(b, ParagraphBlock)]
+    assert len(paras) == 1
+    p = paras[0]
+    assert p.text == '前段此处后段'
+    assert len(p.comments) == 1
+    c = p.comments[0]
+    assert c.comment_id == 0
+    assert c.author == '王五'
+    assert c.text == '这句不通'
+    assert c.anchor_text == '此处'
+    assert c.anchor_range == (2, 4)
+
+
+def test_read_paragraph_with_pointless_comment_reference(tmp_path):
+    """只有 commentReference、没有 range：anchor_range 指向同一点。"""
+    body = (
+        '<w:p>'
+        '<w:r><w:t xml:space="preserve">一整段</w:t></w:r>'
+        '<w:r><w:commentReference w:id="7"/></w:r>'
+        '</w:p>'
+    )
+    cxml = make_comments_xml([{
+        'id': 7, 'author': '赵六',
+        'date': '2026-04-23T00:00:00Z', 'text': '通篇评论',
+    }])
+    docx = tmp_path / 'c.docx'
+    write_docx(str(docx), body, comments_xml=cxml)
+    blocks = read_docx(str(docx))
+    p = [b for b in blocks if isinstance(b, ParagraphBlock)][0]
+    assert len(p.comments) == 1
+    c = p.comments[0]
+    assert c.anchor_text == ''
+    assert c.anchor_range == (3, 3)
