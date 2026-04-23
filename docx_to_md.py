@@ -75,12 +75,36 @@ def _is_struct_change(a: Block, b: Block) -> bool:
 # match_blocks
 # ──────────────────────────────────────────────────────────
 
+def _deep_equal(a: Block, b: Block) -> bool:
+    """对 _block_key 判定相等的块做更严格的深比较。"""
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, ListBlock):
+        return a.ordered == b.ordered and a.items == b.items
+    if isinstance(a, TableBlock):
+        return a.header == b.header and a.rows == b.rows
+    if isinstance(a, HeadingBlock):
+        return a.level == b.level and a.text == b.text
+    if isinstance(a, CodeBlock):
+        return a.code == b.code  # language 不参与（读不出时从基线继承）
+    if isinstance(a, FigureBlock):
+        return a.alt == b.alt and a.path == b.path
+    if isinstance(a, EquationBlock):
+        return a.latex == b.latex
+    if isinstance(a, ParagraphBlock):
+        return a.text == b.text
+    return False
+
+
 def match_blocks(base: List[Block], rev: List[Block]) -> List[BlockMatch]:
     """两轮块匹配。
     第一轮：SequenceMatcher on _block_key → equal/delete/insert/replace opcodes
-    第二轮：对 replace 段里每对块做 ratio；
-             ratio >= 0.5 → text_edit 或 struct_change
-             ratio <  0.5 → 拆成 delete + insert
+    第二轮：
+      - 对 replace 段里每对块做 ratio；
+         ratio >= 0.5 → text_edit 或 struct_change
+         ratio <  0.5 → 拆成 delete + insert
+      - 对 equal 对再做一次深比较（_block_key 可能忽略 ordered/cells 之类的字段），
+         不等则升级为 text_edit 或 struct_change
     长度不相等的 replace 段按顺序 zip，多余的单独 delete / insert。
     """
     base_f = [b for b in base if not isinstance(b, BlankBlock)]
@@ -94,7 +118,12 @@ def match_blocks(base: List[Block], rev: List[Block]) -> List[BlockMatch]:
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op == 'equal':
             for a, b in zip(base_f[i1:i2], rev_f[j1:j2]):
-                matches.append(BlockMatch(a, b, 'equal'))
+                if _deep_equal(a, b):
+                    matches.append(BlockMatch(a, b, 'equal'))
+                elif _is_struct_change(a, b):
+                    matches.append(BlockMatch(a, b, 'struct_change'))
+                else:
+                    matches.append(BlockMatch(a, b, 'text_edit'))
         elif op == 'delete':
             for a in base_f[i1:i2]:
                 matches.append(BlockMatch(a, None, 'delete'))
@@ -247,6 +276,19 @@ def make_edits(baseline_md_text: str,
             continue
         if m.kind == 'text_edit':
             if span is None:
+                continue
+            # code 特化：reason 改名、language 从基线继承
+            if (isinstance(m.base_block, CodeBlock)
+                    and isinstance(m.reviewed_block, CodeBlock)):
+                if not m.reviewed_block.language and m.base_block.language:
+                    m.reviewed_block.language = m.base_block.language
+                new_md = _render_block_md(m.reviewed_block)
+                edits.append(MdEdit(
+                    target_line_range=span,
+                    replacement=new_md,
+                    reason='code_edit',
+                    provenance=f'code block edit at line {span[0] + 1}',
+                ))
                 continue
             new_md = _render_block_md(m.reviewed_block)
             edits.append(MdEdit(

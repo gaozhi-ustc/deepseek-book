@@ -153,3 +153,50 @@ def test_make_edits_delete_removes_block_lines():
     assert e.reason == 'delete'
     assert e.replacement == ''
     assert e.target_line_range == (2, 3)  # "要删。"一行
+
+
+def test_make_edits_list_item_changed():
+    base_md = '- 第一\n- 第二\n- 第三\n\n后文\n'
+    rev_blocks = [
+        ListBlock(items=['第一', '第二改', '第三'], ordered=False, raw=''),
+        ParagraphBlock(text='后文', raw='后文'),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    # 简化策略：list 整块替换
+    list_edits = [e for e in edits if e.reason in ('text_edit', 'list_edit')]
+    assert len(list_edits) == 1
+    assert '第二改' in list_edits[0].replacement
+    assert '第一' in list_edits[0].replacement
+    assert '第三' in list_edits[0].replacement
+
+
+def test_make_edits_ordered_list_changes_to_unordered():
+    base_md = '1. A\n2. B\n'
+    rev_blocks = [
+        ListBlock(items=['A', 'B'], ordered=False, raw=''),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    assert len(edits) == 1
+    assert edits[0].reason in ('struct_change', 'text_edit')
+    assert edits[0].replacement.startswith('- A')
+
+
+def test_make_edits_code_changed():
+    base_md = '```python\nprint(1)\n```\n'
+    rev_blocks = [
+        CodeBlock(code='print(2)', language='python', title='', raw=''),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    assert len(edits) == 1
+    assert edits[0].reason == 'code_edit'
+    assert 'print(2)' in edits[0].replacement
+
+
+def test_make_edits_code_language_preserved_from_baseline():
+    """如果 reviewed code 没有 language（docx_reader 读不出），从基线继承。"""
+    base_md = '```python\nprint(1)\n```\n'
+    rev_blocks = [
+        CodeBlock(code='print(2)', language='', title='', raw=''),
+    ]
+    edits = make_edits(base_md, rev_blocks)
+    assert '```python' in edits[0].replacement
