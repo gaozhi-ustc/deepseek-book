@@ -89,3 +89,129 @@ def resolve_range(arg: str, repo: str = '.',
     head = _rev_parse(arg, repo=repo)
     base = _rev_parse(f'{arg}^', repo=repo)
     return base, head
+
+
+# ──────────────────────────────────────────────────────────
+# docx custom.xml 元数据
+# ──────────────────────────────────────────────────────────
+
+import zipfile
+import shutil
+from lxml import etree
+
+_CUSTOM_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/custom-properties'
+_VT_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes'
+_PROPS_FMTID = '{D5CDD505-2E9C-101B-9397-08002B2CF9AE}'
+_CT_NS = 'http://schemas.openxmlformats.org/package/2006/content-types'
+_RELS_NS = 'http://schemas.openxmlformats.org/package/2006/relationships'
+
+_METADATA_KEYS = ('SourceGitCommit', 'SourceBaseCommit',
+                  'SourcePath', 'ReviewExportedAt')
+
+
+def _build_custom_xml(props: dict) -> bytes:
+    nsmap = {None: _CUSTOM_NS, 'vt': _VT_NS}
+    root = etree.Element('{%s}Properties' % _CUSTOM_NS, nsmap=nsmap)
+    pid = 2  # pid 1 是保留值
+    for name in _METADATA_KEYS:
+        if name not in props:
+            continue
+        p = etree.SubElement(root, '{%s}property' % _CUSTOM_NS)
+        p.set('fmtid', _PROPS_FMTID)
+        p.set('pid', str(pid))
+        p.set('name', name)
+        v = etree.SubElement(p, '{%s}lpwstr' % _VT_NS)
+        v.text = props[name]
+        pid += 1
+    return etree.tostring(root, xml_declaration=True,
+                          encoding='UTF-8', standalone=True)
+
+
+def stamp_docx_metadata(docx_path: str,
+                        source_git_commit: str,
+                        source_base_commit: str,
+                        source_path: str,
+                        exported_at: str) -> None:
+    """把 4 项元数据写入 docx 的 docProps/custom.xml（必要时也更新
+    [Content_Types].xml 与 _rels/.rels，使 Word 能识别该 part）。"""
+    props = {
+        'SourceGitCommit':   source_git_commit,
+        'SourceBaseCommit':  source_base_commit,
+        'SourcePath':        source_path,
+        'ReviewExportedAt':  exported_at,
+    }
+    new_xml = _build_custom_xml(props)
+
+    tmp_path = docx_path + '.tmp'
+    with zipfile.ZipFile(docx_path, 'r') as zin, \
+         zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+        # 1. 复制除 custom.xml / [Content_Types].xml / _rels/.rels 外的全部文件
+        for item in zin.infolist():
+            if item.filename in ('docProps/custom.xml',
+                                 '[Content_Types].xml',
+                                 '_rels/.rels'):
+                continue
+            zout.writestr(item, zin.read(item.filename))
+
+        # 2. 写新的 custom.xml
+        zout.writestr('docProps/custom.xml', new_xml)
+
+        # 3. 更新 [Content_Types].xml 确保声明 custom.xml
+        ct_src = zin.read('[Content_Types].xml')
+        ct_root = etree.fromstring(ct_src)
+        want_pn = '/docProps/custom.xml'
+        already_declared = any(
+            o.get('PartName') == want_pn
+            for o in ct_root.findall('{%s}Override' % _CT_NS)
+        )
+        if not already_declared:
+            o = etree.SubElement(ct_root, '{%s}Override' % _CT_NS)
+            o.set('PartName', want_pn)
+            o.set('ContentType',
+                  'application/vnd.openxmlformats-officedocument.custom-properties+xml')
+        zout.writestr('[Content_Types].xml',
+                      etree.tostring(ct_root, xml_declaration=True,
+                                     encoding='UTF-8', standalone=True))
+
+        # 4. 更新 _rels/.rels 确保有 Relationship 指向 custom.xml
+        rels_src = zin.read('_rels/.rels')
+        rels_root = etree.fromstring(rels_src)
+        want_target = 'docProps/custom.xml'
+        have = any(
+            r.get('Target') == want_target
+            for r in rels_root.findall('{%s}Relationship' % _RELS_NS)
+        )
+        if not have:
+            existing_ids = [r.get('Id') for r in rels_root
+                            if r.get('Id') and r.get('Id').startswith('rId')]
+            max_id = max((int(x[3:]) for x in existing_ids), default=0)
+            rel = etree.SubElement(rels_root, '{%s}Relationship' % _RELS_NS)
+            rel.set('Id', f'rId{max_id + 1}')
+            rel.set('Type', 'http://schemas.openxmlformats.org/'
+                           'officeDocument/2006/relationships/custom-properties')
+            rel.set('Target', want_target)
+        zout.writestr('_rels/.rels',
+                      etree.tostring(rels_root, xml_declaration=True,
+                                     encoding='UTF-8', standalone=True))
+
+    shutil.move(tmp_path, docx_path)
+
+
+def read_docx_metadata(docx_path: str) -> dict:
+    """回读 docProps/custom.xml 的 4 个键；若 part 不存在返回 {}"""
+    try:
+        with zipfile.ZipFile(docx_path, 'r') as z:
+            if 'docProps/custom.xml' not in z.namelist():
+                return {}
+            data = z.read('docProps/custom.xml')
+    except zipfile.BadZipFile as e:
+        raise GitReviewError(f'不是合法的 docx（zip）文件: {docx_path}') from e
+
+    root = etree.fromstring(data)
+    result = {}
+    for p in root.findall('{%s}property' % _CUSTOM_NS):
+        name = p.get('name')
+        val_el = p.find('{%s}lpwstr' % _VT_NS)
+        if name in _METADATA_KEYS and val_el is not None and val_el.text:
+            result[name] = val_el.text
+    return result

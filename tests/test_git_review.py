@@ -89,3 +89,51 @@ def test_resolve_range_bad_commit(tmp_git_repo):
     _commit(tmp_git_repo, 'a.md', 'a\n', 'c1')
     with pytest.raises(GitReviewError):
         resolve_range('deadbeef', repo=str(tmp_git_repo))
+
+
+# ── stamp/read metadata ───────────────────────────────────
+from git_review import stamp_docx_metadata, read_docx_metadata
+
+
+def _make_bare_docx(path):
+    """用 python-docx 造一个空白 docx 文件。"""
+    from docx import Document
+    Document().save(str(path))
+
+
+def test_stamp_and_read_roundtrip(tmp_path):
+    d = tmp_path / 'x.docx'
+    _make_bare_docx(d)
+    sha_full = 'a' * 40
+    base_full = 'b' * 40
+    stamp_docx_metadata(
+        docx_path=str(d),
+        source_git_commit=sha_full,
+        source_base_commit=base_full,
+        source_path='chapter3_new.md',
+        exported_at='2026-04-23T16:37:00Z',
+    )
+    meta = read_docx_metadata(str(d))
+    assert meta['SourceGitCommit'] == sha_full
+    assert meta['SourceBaseCommit'] == base_full
+    assert meta['SourcePath'] == 'chapter3_new.md'
+    assert meta['ReviewExportedAt'] == '2026-04-23T16:37:00Z'
+
+
+def test_read_docx_metadata_no_custom_xml_returns_empty(tmp_path):
+    d = tmp_path / 'empty.docx'
+    _make_bare_docx(d)
+    meta = read_docx_metadata(str(d))
+    assert meta == {}
+
+
+def test_stamp_is_idempotent(tmp_path):
+    """重复 stamp 应覆盖旧值而不是追加重复项。"""
+    d = tmp_path / 'x.docx'
+    _make_bare_docx(d)
+    stamp_docx_metadata(str(d), 'a' * 40, 'b' * 40, 'x.md', 't1')
+    stamp_docx_metadata(str(d), 'c' * 40, 'd' * 40, 'y.md', 't2')
+    meta = read_docx_metadata(str(d))
+    assert meta['SourceGitCommit'] == 'c' * 40
+    assert meta['SourcePath'] == 'y.md'
+    assert meta['ReviewExportedAt'] == 't2'
