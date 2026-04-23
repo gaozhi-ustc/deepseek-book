@@ -89,6 +89,136 @@ def cmd_export_review(args):
     print(f'   基线: {base_sha[:7]}  送审版本: {head_sha[:7]}')
 
 
+def cmd_import_review(args):
+    """回灌：审校 docx → review 分支 commit。"""
+    import datetime
+    import os as _os
+    import subprocess as _sp
+    from docx_reader import read_docx, DocxReaderError
+    from docx_to_md import (
+        make_edits_with_comments, apply_edits_to_md, render_commit_message,
+    )
+    from git_review import (
+        resolve_baseline, read_at, detect_reviewer, commit_to_review_branch,
+        GitReviewError,
+    )
+
+    # 0. 工作区干净检查 — 只拒绝 tracked 文件的未提交改动；untracked 文件
+    #    （通常是审校 docx 本身）允许存在。
+    if not args.allow_dirty:
+        unstaged = _sp.run(['git', 'diff', '--quiet'],
+                           capture_output=True, check=False).returncode
+        staged = _sp.run(['git', 'diff', '--cached', '--quiet'],
+                         capture_output=True, check=False).returncode
+        if unstaged or staged:
+            print('错误: 工作区有未提交改动（tracked 文件）。请先 git stash / '
+                  'git commit 再 import-review，或加 --allow-dirty 强行继续。',
+                  file=sys.stderr)
+            diff_out = _sp.run(['git', 'status', '--porcelain', '--untracked-files=no'],
+                               capture_output=True, text=True, check=False).stdout
+            print(diff_out, file=sys.stderr)
+            sys.exit(1)
+
+    # 1. 基线
+    try:
+        base_sha, source_path, baseline_source = resolve_baseline(
+            args.docx, repo='.', cli_base=args.base, cli_path=args.path,
+        )
+    except GitReviewError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    # 2. baseline md
+    try:
+        baseline_md = read_at(base_sha, source_path, repo='.')
+    except GitReviewError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    # 3. reviewed docx
+    try:
+        reviewed_blocks = read_docx(args.docx)
+    except DocxReaderError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(2)
+
+    # 4. media bundle — 从 docx 再读一次抽取 sha -> bytes
+    import zipfile as _zf
+    import hashlib as _hash
+    media_by_sha: dict = {}
+    try:
+        with _zf.ZipFile(args.docx, 'r') as z:
+            for n in z.namelist():
+                if n.startswith('word/media/'):
+                    data = z.read(n)
+                    media_by_sha[_hash.sha256(data).hexdigest()] = data
+    except _zf.BadZipFile:
+        pass
+
+    # 5. reviewer
+    reviewer, slug = detect_reviewer(args.reviewer, args.docx)
+
+    # 6. classifier
+    classify_fn = _build_classify_fn()
+
+    # 7. 计算 edits
+    edits = make_edits_with_comments(
+        baseline_md, reviewed_blocks,
+        media=media_by_sha, classify_fn=classify_fn,
+    )
+
+    if not edits:
+        print('未检测到实质改动；不创建 commit。')
+        sys.exit(0)
+
+    # 8. apply + message
+    new_md, warnings = apply_edits_to_md(baseline_md, edits)
+    msg = render_commit_message(
+        edits=edits, warnings=warnings,
+        reviewer=reviewer,
+        docx_filename=_os.path.basename(args.docx),
+        base_sha=base_sha,
+        baseline_source=baseline_source,
+    )
+
+    # 9. commit
+    date_str = datetime.datetime.now().strftime('%Y%m%d')
+    branch_ref, new_sha = commit_to_review_branch(
+        repo='.',
+        reviewer_slug=slug,
+        reviewer_name=reviewer,
+        base_sha=base_sha,
+        md_path=source_path,
+        new_md_bytes=new_md.encode('utf-8'),
+        commit_message=msg,
+        docx_filename=_os.path.basename(args.docx),
+        date_str=date_str,
+    )
+    print(f'✅ 审校 commit 已写入 {branch_ref}  ({new_sha[:7]})')
+    print(f'   review: {len(edits)} 条变动，warnings={len(warnings)}')
+    branch_name = branch_ref.replace('refs/heads/', '')
+    print(f'   手动合并： git merge --no-ff {branch_name}')
+
+
+def _build_classify_fn():
+    """构造 classify_fn(block_text, anchor_text, comment_body, md_context) -> dict。
+    有 ANTHROPIC_API_KEY 则用真实 client；否则 client=None 全部降级为 opinion。"""
+    from comment_classifier import classify
+    client = None
+    if os.environ.get('ANTHROPIC_API_KEY'):
+        try:
+            import anthropic
+            client = anthropic.Anthropic()
+        except Exception as e:
+            print(f'⚠ 无法创建 Anthropic 客户端: {e}; 批注全部走 opinion 降级',
+                  file=sys.stderr)
+            client = None
+
+    def _fn(**kwargs):
+        return classify(client=client, **kwargs)
+    return _fn
+
+
 def cmd_diff(args):
     from md_diff_docx import diff_md_files, diff_from_unified, REVISION_AUTHOR
 
@@ -199,6 +329,18 @@ def main():
     p_exp.add_argument('--author', default='AutoDiff',
                        help='修订作者名')
 
+    # ── import-review 子命令 ────────────────────────────────
+    p_imp = subparsers.add_parser(
+        'import-review',
+        help='把审校 docx 回灌到 review/ 分支上的 commit'
+    )
+    p_imp.add_argument('docx', help='审校后的 docx 路径')
+    p_imp.add_argument('--reviewer', help='审校者显示名（中英文均可）')
+    p_imp.add_argument('--base', help='基线 commit sha（四级回退兜底）')
+    p_imp.add_argument('--path', help='仓库内 md 相对路径（与 --base 配套）')
+    p_imp.add_argument('--allow-dirty', action='store_true',
+                       help='跳过工作区干净检查（默认脏则拒绝）')
+
     args = parser.parse_args()
 
     if args.command == 'convert':
@@ -207,6 +349,8 @@ def main():
         cmd_diff(args)
     elif args.command == 'export-review':
         cmd_export_review(args)
+    elif args.command == 'import-review':
+        cmd_import_review(args)
 
 
 if __name__ == '__main__':
