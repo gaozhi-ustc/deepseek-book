@@ -168,3 +168,49 @@ def test_read_table_with_empty_cells(tmp_path):
     tables = [b for b in blocks if isinstance(b, TableBlock)]
     assert len(tables) == 1
     assert tables[0].rows == [['', 'b']]
+
+
+from md_core import EquationBlock
+from tests.fixtures.build_min_docx import (
+    make_equation_paragraph,
+    SIMPLE_OMATH_X_EQ_1, SIMPLE_OMATH_X_EQ_2,
+)
+
+
+def test_read_block_equation(tmp_path):
+    body = make_equation_paragraph(SIMPLE_OMATH_X_EQ_1)
+    docx = tmp_path / 'e.docx'
+    write_docx(str(docx), body)
+    blocks = read_docx(str(docx))
+    eqs = [b for b in blocks if isinstance(b, EquationBlock)]
+    assert len(eqs) == 1
+    # latex 字段暂时留作指纹载体：OMML 规范化字符串
+    assert eqs[0].latex.startswith('@omml:')
+
+
+def test_equation_fingerprint_distinguishes_different_omml(tmp_path):
+    from docx_reader import equation_fingerprint
+    import lxml.etree as ET
+    f1 = equation_fingerprint(ET.fromstring(SIMPLE_OMATH_X_EQ_1))
+    f2 = equation_fingerprint(ET.fromstring(SIMPLE_OMATH_X_EQ_2))
+    assert len(f1) == 64  # sha256 hex
+    assert f1 != f2
+
+
+def test_equation_fingerprint_canonical_ignores_rpr_noise(tmp_path):
+    """同一个公式但带了字体 rPr 属性，指纹应相同。"""
+    from docx_reader import equation_fingerprint
+    import lxml.etree as ET
+
+    noisy = (
+        '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"'
+        ' xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<m:r>'
+        '<w:rPr><w:rFonts w:ascii="Cambria Math"/></w:rPr>'
+        '<m:t xml:space="preserve">x=1</m:t>'
+        '</m:r>'
+        '</m:oMath>'
+    )
+    f_clean = equation_fingerprint(ET.fromstring(SIMPLE_OMATH_X_EQ_1))
+    f_noisy = equation_fingerprint(ET.fromstring(noisy))
+    assert f_clean == f_noisy

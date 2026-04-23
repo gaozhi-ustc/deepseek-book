@@ -260,6 +260,17 @@ def read_docx(path: str) -> List[Block]:
         is_code = _is_code_paragraph(child)
         text, revisions, _comments_raw = _paragraph_accepted_text_and_revisions(child)
 
+        # 先检测公式段 — 段落里出现 m:oMath 直接产 EquationBlock
+        omaths = child.findall(f'.//{{{M_NS}}}oMath')
+        if omaths:
+            _flush_list(); _flush_code()
+            fp = equation_fingerprint(omaths[0])
+            raw_xml = etree.tostring(omaths[0]).decode('utf-8')
+            blocks.append(EquationBlock(latex=f'@omml:{fp}',
+                                        raw=raw_xml,
+                                        revisions=[], comments=[]))
+            continue
+
         if hlevel is not None:
             _flush_list(); _flush_code()
             blocks.append(HeadingBlock(level=hlevel, text=text, raw=text,
@@ -291,6 +302,45 @@ def read_docx(path: str) -> List[Block]:
 
     _flush_list(); _flush_code()
     return blocks
+
+
+# ──────────────────────────────────────────────────────────
+# 公式指纹
+# ──────────────────────────────────────────────────────────
+
+import hashlib
+import copy
+
+
+def _canonicalize_omml(omath_el) -> bytes:
+    """返回规范化 OMML 的 c14n 字节串。
+    规范化做法：
+      - 复制原树，剥除 <w:rPr>（字体等样式属性不影响公式内容）
+      - 剥除所有节点上的 xml:space 属性（仅影响空白保留，不影响内容）
+      - cleanup_namespaces 去掉移除 rPr 后残留的未用 xmlns 声明
+      - 公式内容以 m:t 文本与结构为主；后续发现误判时可再细化剥法
+      - xml c14n
+    """
+    cloned = copy.deepcopy(omath_el)
+    # 删 <w:rPr>
+    for rpr in list(cloned.iter(f'{W}rPr')):
+        parent = rpr.getparent()
+        if parent is not None:
+            parent.remove(rpr)
+    # 剥 xml:space 属性
+    xml_space = '{http://www.w3.org/XML/1998/namespace}space'
+    for el in cloned.iter():
+        if xml_space in el.attrib:
+            del el.attrib[xml_space]
+    # 清理未使用的命名空间声明
+    etree.cleanup_namespaces(cloned)
+    # c14n
+    return etree.tostring(cloned, method='c14n')
+
+
+def equation_fingerprint(omath_el) -> str:
+    """公式内容指纹，不随 rPr 字体属性变化。"""
+    return hashlib.sha256(_canonicalize_omml(omath_el)).hexdigest()
 
 
 def _read_table(tbl_el) -> TableBlock:

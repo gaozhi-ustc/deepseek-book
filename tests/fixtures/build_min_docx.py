@@ -154,3 +154,22 @@ def make_table(header: list[str], rows: list[list[str]]) -> str:
         out.append('</w:tr>')
     out.append('</w:tbl>')
     return '\n'.join(out)
+
+
+def make_equation_paragraph(omml_xml: str) -> str:
+    """omml_xml 是 <m:oMath>...</m:oMath> 片段，会包进 <m:oMathPara>。"""
+    return (f'<w:p><m:oMathPara xmlns:m="http://schemas.openxmlformats.org/'
+            f'officeDocument/2006/math">{omml_xml}</m:oMathPara></w:p>')
+
+
+SIMPLE_OMATH_X_EQ_1 = (
+    '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+    '<m:r><m:t>x=1</m:t></m:r>'
+    '</m:oMath>'
+)
+
+SIMPLE_OMATH_X_EQ_2 = (
+    '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+    '<m:r><m:t>x=2</m:t></m:r>'
+    '</m:oMath>'
+)
