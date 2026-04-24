@@ -19,6 +19,25 @@ DeepSeek 工程实现分析一书的写作工具链。核心能力：
 - `libreoffice`：公式截图（无则降级，送审 docx 不受影响）
 - 环境变量 `ANTHROPIC_API_KEY`：批注 LLM 分类（无则全部降级为 opinion）
 
+## 安装 Codex skill
+
+本仓库包含打包好的 Codex skill：`skills/md-docx-review-bridge.tgz`。
+在其他设备 clone 本项目后运行：
+
+```bash
+bash scripts/install-md-docx-review-bridge-skill.sh
+```
+
+默认安装到 `${CODEX_HOME:-$HOME/.codex}/skills/md-docx-review-bridge`。
+如目标目录已存在，用下面命令覆盖：
+
+```bash
+bash scripts/install-md-docx-review-bridge-skill.sh --force
+```
+
+安装后重启 Codex，让新 skill 生效。该 skill 负责指导 agent 使用本项目的
+`export-review` / `import-review` 审校桥流程。
+
 ## 常用命令
 
 ### 送审 — md commit 差异 → docx
