@@ -170,16 +170,7 @@ DeepGEMM 基于 TMA 设计了两种内核架构，并采用线程束专用化策
 
 TMA 操作通过描述符（`CUtensorMap`）配置。DeepGEMM 中 TMA 描述符的创建示例（摘自 `sm90_fp8_gemm_1d1d.hpp`）如下：
 
-```cpp
-const auto& tensor_map_a = make_tma_a_desc(
-    major_a,                    // 主维度方向 (K-major 或 MN-major)
-    a,                          // 源张量
-    m, k,                       // 矩阵维度
-    block_m, block_k,           // 每次传输的块大小
-    stride,                     // 步长
-    swizzle_mode               // Swizzle 模式
-);
-```
+
 
 TMA 传输的块大小受共享内存容量约束。SM90 架构每个 SM 的共享内存上限为 232,448 字节，DeepGEMM 默认使用 48KB 的共享内存配置，以保证足够的流水线深度。
 
@@ -277,16 +268,7 @@ DeepGEMM 提供两种内核以适应不同的矩阵规模和应用场景：1d1d 
 
 DeepGEMM 根据矩阵规模自动选择内核类型：对于 N 方向缩放因子粒度为 1 的配置使用 1d1d 内核，否则使用 1d2d 内核。内核选择逻辑（摘自 `gemm.hpp`）如下：
 
-```cpp
-if (arch_major == 9 and sfa.scalar_type() == torch::kFloat) {
-    const int gran_n = recipe.has_value() ? std::get<1>(recipe.value()) : std::get<0>(recipe_b.value());
-    if (gran_n == 1) {
-        sm90_fp8_gemm_1d1d(a.first, sfa, b.first, sfb, c, d, m, n, k, major_a, major_b, compiled_dims);
-    } else {
-        sm90_fp8_gemm_1d2d(a.first, sfa, b.first, sfb, c, d, m, n, k, major_a, major_b, major_sfb, compiled_dims);
-    }
-}
-```
+
 
 
 
@@ -309,28 +291,7 @@ JIT 系统的核心组件包括：
 
 代码生成过程由 `generate_impl` 函数完成（摘自 `sm90_fp8_gemm_1d2d.hpp`），定义如下：
 
-```cpp
-static std::string generate_impl(const Args& args) {
-    return fmt::format(R"(
-#include <deep_gemm/impls/sm90_fp8_gemm_1d2d.cuh>
 
-static void __instantiate_kernel() {{
-    auto ptr = reinterpret_cast<void*>(&sm90_fp8_gemm_1d2d_impl<
-        {},                      // 缩放因子主维度
-        {}, {}, {},              // 编译维度 M, N, K
-        {},                      // 分组数量
-        {}, {}, {},              // 分块大小 BLOCK_M, BLOCK_N, BLOCK_K
-        {}, {}, {},              // Swizzle 模式
-        {}, {},                  // 流水线阶段数
-        {}, {},                  // 线程配置
-        {}, {},                  // Multicast 配置
-        {}, {},                  // SM 数量，GEMM 类型
-        {}                       // 后处理类型
-    >);
-}};
-)", /* 参数填充 */);
-}
-```
 
 表 3-7 列出了 JIT 编译的主要配置参数。
 
@@ -352,40 +313,11 @@ DeepGEMM 支持两种编译后端（摘自 `compiler.hpp`）：
 
 NVCC 编译器的实现如下：
 
-```cpp
-class NVCCCompiler final: public Compiler {
-    void compile(const std::string &code, const std::filesystem::path& dir_path,
-                 const std::filesystem::path &cubin_path,
-                 const std::optional<std::filesystem::path> &ptx_path) const override {
-        // 写入源代码
-        const auto& code_path = dir_path / "kernel.cu";
-        put(code_path, code);
 
-        // 调用 NVCC 编译
-        const auto& command = fmt::format("{} {} -cubin -o {} {}",
-            nvcc_path.c_str(), code_path.c_str(), cubin_path.c_str(), flags);
-        const auto& [return_code, output] = call_external_command(command);
-    }
-};
-```
 
 NVRTC 编译器的实现如下：
 
-```cpp
-class NVRTCCompiler final: public Compiler {
-    void compile(const std::string &code, const std::filesystem::path& dir_path,
-                 const std::filesystem::path &cubin_path,
-                 const std::optional<std::filesystem::path> &ptx_path) const override {
-        // 创建 NVRTC 程序
-        nvrtcProgram program;
-        nvrtcCreateProgram(&program, code.c_str(), "kernel.cu", 0, nullptr, nullptr);
 
-        // 编译并获取 CUBIN
-        nvrtcCompileProgram(program, option_cstrs.size(), option_cstrs.data());
-        nvrtcGetCUBIN(program, cubin_data.data());
-    }
-};
-```
 
 编译器选择通过环境变量 `DG_JIT_USE_NVRTC` 控制，默认使用 NVCC 以保证最优性能。NVRTC 编译速度可提升约 10 倍，适用于开发调试场景。
 
@@ -393,20 +325,7 @@ class NVRTCCompiler final: public Compiler {
 
 配置选择器根据矩阵形状与硬件参数选择最优的分块配置（摘自 `sm90.hpp`），示例如下：
 
-```cpp
-static std::vector<int> get_block_m_candidates(
-    const KernelType& kernel_type,
-    const cute::UMMA::Major& major_a,
-    const int& m
-) {
-    std::vector<int> candidates{64, 128, 256};
-    if (kernel_type == KernelType::Kernel1D2D && major_a == cute::UMMA::Major::K) {
-        if (m <= 16) candidates.push_back(16);
-        if (m <= 32) candidates.push_back(32);
-    }
-    return candidates;
-}
-```
+
 
 配置选择遵循以下原则：
 
@@ -444,16 +363,7 @@ static std::vector<int> get_block_m_candidates(
 
 API 接口（摘自 `gemm.hpp`）定义如下：
 
-```cpp
-static void m_grouped_fp8_fp4_gemm_nt_contiguous(
-    const std::pair<torch::Tensor, torch::Tensor>& a,  // [M, K] + 缩放因子
-    const std::pair<torch::Tensor, torch::Tensor>& b,  // [G, N, K] + 缩放因子
-    const torch::Tensor& d,                            // [M, N] 输出
-    const torch::Tensor& grouped_layout,               // [M] 专家索引映射
-    std::optional<std::tuple<int, int, int>> recipe,   // 缩放因子配置
-    // ... 其他参数
-);
-```
+
 
 连续布局的性能提升如表 3-8 所示。
 
@@ -475,58 +385,17 @@ static void m_grouped_fp8_fp4_gemm_nt_contiguous(
 
 数据结构如下：
 
-```
-A (激活):    [num_groups, M_max, K]     所有 group 填充到 M_max
-B (权重):    [num_groups, N, K]         固定的 N 和 K
-D (输出):    [num_groups, M_max, N]     输出张量
-masked_m:    [num_groups]               每个 group 的实际 M 值（int32 数组）
-```
+
 
 计算逻辑示例如下：
 
-```python
-# 4 个专家，M_max=512, N=4096, K=14336
-masked_m = [256, 384, 0, 128]  # 各专家的实际 Token 数
 
-# 实际计算：
-# Group 0: A[0, :256, :] @ B[0, :, :].T → D[0, :256, :]  # 计算前256行
-# Group 1: A[1, :384, :] @ B[1, :, :].T → D[1, :384, :]  # 计算前384行
-# Group 2: 完全跳过 (masked_m[2]=0)
-# Group 3: A[3, :128, :] @ B[3, :, :].T → D[3, :128, :]  # 计算前128行
-```
 
 内核实现：
 
 调度器（Scheduler）在运行时读取 `masked_m` 数组，动态跳过无效的计算块。Block 分配算法的核心逻辑如下：
 
-```cpp
-__device__ __forceinline__ bool get_next_block(
-    uint32_t& m_block_idx, uint32_t& n_block_idx
-) {
-    if constexpr (kGemmType == GemmType::MGroupedMasked) {
-        while (true) {
-            // 检查是否所有 group 都处理完毕
-            if (current_group_idx == kNumGroups)
-                return false;
 
-            // 从掩码数组读取当前 group 的实际 M 值
-            num_m_blocks = ceil_div(
-                static_cast<uint32_t>(__ldg(grouped_layout + current_group_idx)),
-                BLOCK_M
-            );
-
-            // 检查当前 block 是否属于当前 group
-            if (next_block_idx < current_m_block_cumsum * num_n_blocks)
-                break;
-
-            // 移动到下一个 group
-            current_group_idx++;
-            current_m_cumsum = current_m_block_cumsum;
-        }
-    }
-    return true;
-}
-```
 
 CUDA Graph 兼容性：
 
@@ -1113,36 +982,11 @@ $$\text{remote\_addr}(pe, ptr) = \text{base\_addr}_{\mathrm{pe}} + (ptr - \text{
 
 其中 $pe$ 为目标处理单元（Processing Element）编号，$ptr$ 为本地指针地址，$\text{base\_addr}_{\mathrm{pe}}$ 为目标 PE 的对称堆基地址，$\text{base\_addr}_{\mathrm{local}}$ 为本地对称堆基地址。该设计使得远程内存访问无需地址交换，降低了通信延迟。DeepEP 的对称堆配置包含 Dispatch 缓冲区、Combine 缓冲区、元数据区域、同步信号区域。总堆大小计算如下：
 
-```cpp
-size_t total_heap_size =
-    max_tokens * K * d_model * sizeof(dtype) * 2 +  // 数据缓冲区
-    num_experts * sizeof(int) * 2 +                  // token 计数
-    num_experts * sizeof(uint64_t);                  // 同步标志
-```
+
 
 在 DeepEP 的实现中，`Buffer` 类维护 NVLink 和 NVSHMEM 双层缓冲区结构，定义如下：
 
-```cpp
-struct Buffer {
-    // NVLink Buffer（节点内通信）
-    int64_t num_nvl_bytes;                              // NVLink 缓冲区总字节数
-    void* buffer_ptrs[NUM_MAX_NVL_PEERS] = {nullptr};   // [num_nvl_peers] 各 NVLink peer 的缓冲区指针
-    void buffer_ptrs_gpu = nullptr;                   // GPU 端的缓冲区指针数组
 
-    // NVSHMEM Buffer（跨节点通信）
-    int64_t num_rdma_bytes;                             // RDMA 对称堆缓冲区总字节数
-    void* rdma_buffer_ptr = nullptr;                    // RDMA 对称堆基地址
-
-    // 设备信息与通信配置
-    int rank, rdma_rank, nvl_rank;                      // 全局 rank、RDMA rank、NVLink rank
-    int num_ranks, num_rdma_ranks, num_nvl_ranks;       // 各级别的总 rank 数
-
-    // Host 端 MoE 计数器（用于同步）
-    volatile int* moe_recv_counter = nullptr;           // 接收 token 总数计数器（CPU 可见）
-    volatile int* moe_recv_expert_counter = nullptr;    // 各专家接收 token 计数器
-    volatile int* moe_recv_rdma_counter = nullptr;      // RDMA 接收 token 计数器
-};
-```
 
 该设计区分了节点内（NVLink）和跨节点（RDMA）两条通信路径，充分利用多级网络拓扑的硬件特性。
 
@@ -1150,55 +994,13 @@ struct Buffer {
 
 NVSHMEM 提供 put（写入远程）和 get（读取远程）两类单边操作。Dispatch 阶段使用 Put 操作将 token 数据写入远程 GPU，示例如下：
 
-```cpp
-__global__ void dispatch_kernel(
-    float* local_tokens,           // 本地 token 数据
-    float* symmetric_heap,         // 对称堆基地址
-    int* routing_indices,          // 路由索引
-    int* remote_slots,             // 远程槽位
-    int num_tokens, int d_model
-) {
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_tokens) return;
 
-    int target_expert = routing_indices[tid];
-    int target_pe = expert_to_pe(target_expert);
-    int slot = remote_slots[tid];
-
-    // 计算远程偏移
-    size_t offset = slot * d_model * sizeof(float);
-
-    // 单边 Put 操作（非阻塞）
-    nvshmem_float_put_nbi(
-        symmetric_heap + offset,           // 远程地址
-        local_tokens + tid * d_model,      // 本地数据
-        d_model,                           // 数据量
-        target_pe                          // 目标 PE
-    );
-}
-```
 
 **(4) 信号与同步机制**
 
 NVSHMEM 提供细粒度同步原语。DeepEP 利用 Signal 操作实现高效的生产者-消费者同步，示例如下：
 
-```cpp
-// 发送方：数据写入完成后发送信号
-nvshmem_fence();  // 确保数据写入完成
-nvshmemx_signal_op(
-    signal_addr,        // 远程信号地址
-    1,                  // 信号值
-    NVSHMEM_SIGNAL_SET, // 操作类型
-    target_pe           // 目标 PE
-);
 
-// 接收方：等待信号
-nvshmem_uint64_wait_until(
-    local_signal_addr,
-    NVSHMEM_CMP_GE,
-    expected_count
-);
-```
 
 该机制使得接收方可以在数据部分到达后立即开始处理，而非等待所有数据。DeepEP 内核 API 中定义了节点间通信的完整接口，包括 `notify_dispatch`、`dispatch` 和 `combine` 三个核心函数，分别负责通知、分发和聚合操作。
 
@@ -1425,39 +1227,13 @@ EPLB 以 PyTorch 实现，提供简洁的 Python API 接口。核心函数接受
 
 EPLB 的主入口函数 `rebalance_experts` 接受负载统计并返回专家放置方案，定义如下：
 
-```python
-def rebalance_experts(
-    weight: torch.Tensor,      # [layers, num_logical_experts] 各层各专家的负载统计
-    num_replicas: int,         # 物理专家总数，必须是 num_gpus 的整数倍
-    num_groups: int,           # 专家分组数（用于分组限制路由）
-    num_nodes: int,            # 服务器节点数，节点内网络（如 NVLink）更快
-    num_gpus: int              # GPU 总数，必须是 num_nodes 的整数倍
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-```
+
 
 使用示例
 
 以下示例展示 EPLB 在双层 MoE 模型中的使用方式：
 
-```python
-import torch
-import eplb
 
-# 两层 MoE，每层 12 个逻辑专家的负载统计
-weight = torch.tensor([
-    [ 90, 132,  40,  61, 104, 165,  39,   4,  73,  56, 183,  86],  # Layer 0
-    [ 20, 107, 104,  64,  19, 197, 187, 157, 172,  86,  16,  27]   # Layer 1
-])
-
-num_replicas = 16   # 16 个物理专家槽位（12 个逻辑专家 + 4 个冗余）
-num_groups = 4      # 4 个专家分组
-num_nodes = 2       # 2 个服务器节点
-num_gpus = 8        # 8 个 GPU
-
-phy2log, log2phy, logcnt = eplb.rebalance_experts(
-    weight, num_replicas, num_groups, num_nodes, num_gpus
-)
-```
 
 上述分层负载均衡策略生成专家复制和放置方案如图 3-12 所示。
 
@@ -1605,13 +1381,7 @@ $$\mathbfit{o}_t = \text{Attention}(\mathbfit{q}_t, \mathbfit{K}_{1:t}, \mathbfi
 
 KV-Cache 缓存历史 token 的 K、V 向量，避免重复计算，流程如下：
 
-```
-生成过程：
-t=1: 计算 k_1, v_1，存入 cache
-t=2: 计算 k_2, v_2，存入 cache，复用 k_1, v_1
-...
-t=T: 计算 k_T, v_T，复用 k_1...k_{T-1}, v_1...v_{T-1}
-```
+
 
 KV-Cache 的显存占用：
 
@@ -1934,15 +1704,7 @@ $$\mathbfit{O} = \mathbfit{P} \mathbfit{V} \in \mathbb{R}^{h_{\mathrm{q}} \times
 
 DeepSeek Sparse Attention（DSA）是 DeepSeek-V3.2 引入的 Token 级稀疏注意力机制。FlashMLA 通过 `indices` 张量支持稀疏计算，接口示例如下：
 
-```python
-# 稀疏注意力接口（摘自 FlashMLA/README.md）
-out, max_logits, lse = flash_mla_sparse_fwd(
-    q,           # [s_q, h_q, d_qk]
-    kv,          # [s_kv, h_kv, d_qk]
-    indices,     # [s_q, h_kv, topk]  Token 索引
-    sm_scale,    # 缩放因子
-)
-```
+
 
 `indices` 张量指定每个 Query 需要关注的 Top-K 个 KV token，实现 Token 级稀疏选择。无效索引设为 -1 或 $\geq s_{\mathrm{kv}}$ 的值。
 
@@ -2010,9 +1772,7 @@ FlashMLA 使用 Hopper 架构的 WGMMA（Warp Group Matrix Multiply-Accumulate�
 
 FP8 稀疏解码内核面临 去量化瓶颈。H800 不能直接将 float8_e4m3 转换为 bfloat16，需要多步转换，流程如下：
 
-```
-float8_e4m3 → half → float32 → bfloat16 → scale
-```
+
 
 根据 NVIDIA 文档，去量化每个 token 需要约 50 个周期，而 MMA 操作仅需 34 个周期。去量化成为性能瓶颈。
 
@@ -2085,12 +1845,7 @@ TMA 优势：
 
 FlashMLA 使用细粒度 TMA-GEMM 流水线，示例如下：
 
-```
-对于 64×576 的 K 块，发起 9 次 TMA 拷贝（每次 64×64）：
-- 第 1 次 TMA 完成 → 开始第 1 个 GEMM
-- 第 2 次 TMA 完成 → 开始第 2 个 GEMM
-- ...
-```
+
 
 这种细粒度流水线提高了内存延迟容忍度，并使用 Cache Hint 优化 L2 缓存。
 
@@ -2100,19 +1855,7 @@ FlashMLA 使用细粒度 TMA-GEMM 流水线，示例如下：
 
 核心思想：同一 Query token 的 128 个 Query 头分配给两个 CTA（各处理 64 头）。两个 CTA 分别去量化一半的 KV 缓存，然后通过 DSM 交换，流程如下：
 
-```
-Cluster 中的两个 CTA（CTA_0 和 CTA_1）：
 
-1. CTA_0 加载并去量化 KV 缓存的前半部分
-   CTA_1 加载并去量化 KV 缓存的后半部分
-
-2. CTA_0 将去量化结果存入自己的共享内存
-   CTA_0 使用 st.async 写入 CTA_1 的共享内存
-
-3. 使用 cluster transaction barrier 同步
-
-4. 两个 CTA 都拥有完整的去量化 KV 缓存
-```
 
 Crossover 技术将去量化开销减半，使 FP8 稀疏解码内核从 250 TFLOPS 提升至 410 TFLOPS。
 
@@ -2262,34 +2005,7 @@ GRPO 训练内存占用分解如表 3-41 所示。
 
 Unsloth 将 GRPO 的生成和训练阶段分块处理，避免同时存储所有 $G$ 个响应，示例如下：
 
-```python
-def chunked_grpo_forward(model, prompts, group_size, chunk_size=2):
-    """分块 GRPO 前向传播"""
-    all_rewards, all_log_probs = [], []
 
-    for chunk_start in range(0, group_size, chunk_size):
-        # 生成当前块的响应
-        with torch.no_grad():
-            responses = vllm_generate(model, prompts, num_samples=chunk_size)
-
-        # 计算 log 概率
-        log_probs = chunked_cross_entropy_logprob(model, prompts, responses)
-        rewards = compute_rewards(prompts, responses)
-
-        all_rewards.append(rewards.cpu())
-        all_log_probs.append(log_probs)
-        del responses  # 立即释放
-
-    # 计算组统计量
-    all_rewards = torch.cat(all_rewards, dim=0)
-    advantages = (all_rewards - all_rewards.mean()) / (all_rewards.std() + 1e-8)
-
-    # 分块反向传播
-    for log_prob, adv in zip(all_log_probs, advantages.split(chunk_size)):
-        ratio = torch.exp(log_prob - log_prob.detach())
-        loss = -torch.min(ratio * adv, torch.clamp(ratio, 0.8, 1.2) * adv).mean()
-        loss.backward()
-```
 
 该策略将峰值内存从 $O(G)$ 降至 $O(B)$，其中 $B \ll G$。
 
@@ -2316,21 +2032,7 @@ GRPO 训练包含生成（推理）和训练两个阶段，Unsloth 的 Standby �
 
 生成阶段和训练阶段的内存复用策略如下：
 
-```
-生成阶段（80 GB GPU）：
-┌───────────────────────────────────────────────────────────────┐
-│  模型参数    │  KV-Cache        │  临时缓冲     │    空闲        │
-├───────────────────────────────────────────────────────────────┤
-│  15 GB      │  45 GB           │  10 GB       │   10 GB       │
-└───────────────────────────────────────────────────────────────┘
 
-训练阶段（复用）：
-┌───────────────────────────────────────────────────────────────┐
-│  模型参数    │  激活值存储      │  梯度缓冲     │  优化器临时       │
-├───────────────────────────────────────────────────────────────┤
-│  15 GB      │  40 GB         │  15 GB       │   10 GB         │
-└───────────────────────────────────────────────────────────────┘
-```
 
 根据 Unsloth 官方数据，Standby 特性使得 Qwen-2.5-3B 在 A100 40GB 上从仅支持 6K 上下文提升至 10K+。
 
@@ -2417,23 +2119,7 @@ SWIFT 支持多种 GRPO 变体算法，每种算法针对特定场景优化，�
 
 Megatron 并行支持示例如下：
 
-```python
-from swift.llm import grpo_main, GRPOArguments
 
-grpo_args = GRPOArguments(
-    model_id_or_path='Qwen/Qwen2.5-72B-Instruct',
-    use_megatron=True,
-    tensor_parallel_size=8,
-    pipeline_parallel_size=4,
-    context_parallel_size=2,
-    rl_type='grpo',
-    group_size=8,
-    kl_coeff=0.05,
-    reward_model_type='genrm',
-    learning_rate=1e-6,
-)
-grpo_main(grpo_args)
-```
 
 自定义奖励模型：SWIFT 支持规则奖励（GenRM），可根据答案正确性、推理长度、格式规范性等设计奖励函数。
 
