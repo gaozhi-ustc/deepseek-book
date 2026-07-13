@@ -1,18 +1,18 @@
 
-# 第 3 章  工程实现分析
+# 第3章 工程实现分析
 本章将按照第2章介绍的系统结构的创新点，结合DeepSeek已经公开的技术资料，分别介绍基础设施、MoE、MLA和强化学习等几个技术方向的工程实现。此外，3.5 节将介绍与 DeepSeek-V4 一同发布的投机解码框架 DSpark，解读其如何在生产环境中加速 V4 的在线推理服务。
 
-## 3.1 大规模高性能训练和推理工程基础设施
+## 3.1 训练和推理工程基础设施
 
 为了提升大规模模型训练的性能，DeepSeek开发了两个项目做训练基础设施，分别是：
-- DeepGEMM：通用矩阵乘法（General Matrix Multiply，简称GEMM）的FP8精度计算框架，对MoE做了深度优化；
-- 3FS：为模型训练和推理深度优化的基于SSD的文件系统。
+- DeepGEMM[^deepgemm]：通用矩阵乘法（General Matrix Multiply，简称GEMM）的FP8精度计算框架，对MoE做了深度优化；
+- 3FS[^fs3]：为模型训练和推理深度优化的基于SSD的文件系统。
 
 ### 3.1.1 DeepGEMM：高性能通用矩阵乘法库
 
 
 
-在 GPU 计算领域，针对矩阵乘法的优化研究已相当成熟与深入。NVIDIA 官方提供的 cuBLAS 库针对通用场景进行了高度优化，CUTLASS（CUDA Templates for Linear Algebra Subroutines，线性代数子程序的 CUDA 模板）则提供了模块化的 C++ 模板库，支持自定义 GEMM 内核开发。Micikevicius等于2022年提出的FP8数据格式规范为低精度训练奠定了基础，Dao等人在2022年发表的FlashAttention等工作证明了 IO 感知算法设计在注意力机制中的有效性。
+在 GPU 计算领域，针对矩阵乘法的优化研究已相当成熟与深入。NVIDIA 官方提供的 cuBLAS 库针对通用场景进行了高度优化，CUTLASS[^cutlass]（CUDA Templates for Linear Algebra Subroutines，线性代数子程序的 CUDA 模板）则提供了模块化的 C++ 模板库，支持自定义 GEMM 内核开发。Micikevicius等于2022年提出的FP8数据格式规范为低精度训练奠定了基础，Dao等人在2022年发表的FlashAttention等工作证明了 IO 感知算法设计在注意力机制中的有效性。
 
 
 (1) 传统 GEMM 实现存在以下局限：
@@ -38,7 +38,7 @@
 
 **(1) FP8 数据格式规范**
 
-FP8数据格式由Micikevicius等人在2022年的工作中提出，Hopper 架构支持两种 FP8 数据格式，如表 3-1 所示。
+FP8数据格式由 Micikevicius 等人在 2022 年的工作中提出[^fp8]，Hopper 架构[^hopper]支持两种 FP8 数据格式，如表 3-1 所示。
 
 表 3-1 FP8 数据格式参数
 
@@ -424,9 +424,9 @@ CUDA Graph 兼容性：
 
 
 
-### 3.1.2 3FS：为 AI 负载设计的高性能分布式文件系统
+### 3.1.2 3FS：高性能分布式文件系统
 
-大规模深度学习训练对存储系统提出了前所未有的性能需求。3FS（Fire-Flyer File System）是 DeepSeek 开源的分布式文件系统，专为 AI 训练与推理负载进行深度优化，实现了单集群 6.6 TiB/s 的聚合读取吞吐量，可以更好地满足AI系统各流程的文件系统需求。
+大规模深度学习训练对存储系统提出了前所未有的性能需求。3FS（Fire-Flyer File System）是 DeepSeek 开源的分布式文件系统[^ant3fs]，专为 AI 训练与推理负载进行深度优化，实现了单集群 6.6 TiB/s 的聚合读取吞吐量，可以更好地满足AI系统各流程的文件系统需求。
 
 
 
@@ -505,7 +505,7 @@ CUDA Graph 兼容性：
 
 3FS 依赖以下外部组件：
 
-- FoundationDB：用于元数据服务存储文件元数据，提供 SSI 隔离级别的分布式事务支持；
+- FoundationDB[^fdb]：用于元数据服务存储文件元数据，提供 SSI 隔离级别的分布式事务支持；
 - ZooKeeper/etcd：用于 Cluster Manager 实现多副本选主；
 - ClickHouse：用于存储服务产生的监控指标（Metrics）。
 
@@ -531,7 +531,7 @@ $$\text{chain\_id} = f(\text{chunk\_index}, \text{shuffle\_seed}, \text{chain\_t
 
 **(4) CRAQ 链式复制协议**
 
-3FS 的存储服务采用 CRAQ（Chain Replication with Apportioned Queries）一致性协议维护数据副本。该协议的核心特性：
+3FS 的存储服务采用 CRAQ[^craq]（Chain Replication with Apportioned Queries）一致性协议维护数据副本。该协议的核心特性：
 
 写入流程：
 
@@ -885,19 +885,19 @@ $$T_{\mathrm{lease}} = T_{\mathrm{base}} + \alpha \cdot T_{\mathrm{activity}} $$
 
 
 
-## 3.2 混合专家系统的工程优化
+## 3.2 MoE 的工程优化
 
 混合专家系统（MoE）架构的核心思想是将模型参数划分为多个专家（Expert），每个 token 仅被路由至少数专家进行处理。DeepSeek-V3 采用 256 个路由专家、1 个共享专家的配置，每个 token 激活 8 个专家。相比稠密模型，MoE 架构在保持计算量基本不变的前提下实现了模型容量的大幅提升：DeepSeek-V3 总参数量达 671B，但单 token 激活参数仅 37B。
 
-本节介绍 DeepSeek 为支持 MoE 模型设计的高性能通信库 DeepEP 和支持专家并行的负载均衡器 EPLB。
+本节介绍 DeepSeek 为支持 MoE 模型设计的高性能通信库 DeepEP[^deepep] 和支持专家并行的负载均衡器 EPLB[^eplb]。
 
-### 3.2.1 DeepEP：支持 MoE 模型的高性能通信库
+### 3.2.1 DeepEP：高性能通信库
 
 DeepEP（DeepSeek Expert Parallel）是专为 MoE 模型设计的高性能通信库，针对专家并行（Expert Parallelism, EP）场景优化 All-to-All 通信性能，支撑了 DeepSeek-V3 的高效训练与推理。
 
 MoE 模型的分布式训练与推理面临独特的通信挑战。不同于数据并行的 All-Reduce 和张量并行的 All-Gather/Reduce-Scatter，专家并行需要 All-to-All 通信：每个 GPU 需将 token 发送至持有目标专家的 GPU，通信模式呈现多对多特征。路由决策的动态性导致不同 GPU 间的通信量存在差异，该值随 batch 变化，难以提前预测。传统 All-to-All 实现（如 NCCL）针对通用场景优化，在 MoE 场景下存在启动开销大、无法利用路由先验、同步粒度粗等局限。
 
-DeepEP 针对上述挑战提出了系统性的解决方案。在通信架构层面，采用基于 NVSHMEM 的单边通信机制，消除集合通信的同步开销。在数据布局层面，引入连续布局（Contiguous Layout）与掩码布局（Masked Layout）两种策略，分别优化训练/预填充阶段与解码阶段的通信效率。在内核实现层面，提供普通内核与低延迟内核两套方案，适配不同场景的性能需求。
+DeepEP 针对上述挑战提出了系统性的解决方案。在通信架构层面，采用基于 NVSHMEM[^nvshmem] 的单边通信机制，消除集合通信的同步开销。在数据布局层面，引入连续布局（Contiguous Layout）与掩码布局（Masked Layout）两种策略，分别优化训练/预填充阶段与解码阶段的通信效率。在内核实现层面，提供普通内核与低延迟内核两套方案，适配不同场景的性能需求。
 
 
 
@@ -1249,9 +1249,9 @@ EPLB 的实际效果从负载均衡系数、端到端训练吞吐量及分层策
 
 **(1) 负载均衡效果**
 
-表 3-23 对比了启用与未启用 EPLB 时的负载均衡系数。
+表 3-22 对比了启用与未启用 EPLB 时的负载均衡系数。
 
-表 3-23 EPLB 负载均衡效果（E=专家数，N=GPU 数，R=冗余专家数）
+表 3-22 EPLB 负载均衡效果（E=专家数，N=GPU 数，R=冗余专家数）
 
 | 配置 | LB 系数（无 EPLB） | LB 系数（有 EPLB） | 改进幅度 |
 |-----|-------------------|-------------------|----------|
@@ -1261,9 +1261,9 @@ EPLB 的实际效果从负载均衡系数、端到端训练吞吐量及分层策
 
 **(2) 端到端训练加速**
 
-表 3-24 展示了 EPLB 对 MoE 模型训练吞吐量的提升。
+表 3-23 展示了 EPLB 对 MoE 模型训练吞吐量的提升。
 
-表 3-24 EPLB 训练吞吐量提升
+表 3-23 EPLB 训练吞吐量提升
 
 | 模型规模 | 基线吞吐量 | EPLB 吞吐量 | 加速比 |
 |---------|-----------|-------------|--------|
@@ -1278,9 +1278,9 @@ EPLB 的实际效果从负载均衡系数、端到端训练吞吐量及分层策
 
 策略选择对比
 
-表 3-25 对比了分层策略与全局策略的性能差异。
+表 3-24 对比了分层策略与全局策略的性能差异。
 
-表 3-25 分层策略 vs 全局策略性能对比
+表 3-24 分层策略与全局策略性能对比
 
 | 场景 | 分层策略延迟 | 全局策略延迟 | 分层策略优势 |
 |-----|-------------|-------------|--------------|
@@ -1295,9 +1295,9 @@ EPLB 的实际效果从负载均衡系数、端到端训练吞吐量及分层策
 
 ## 3.3 注意力机制的工程实现
 
-### 3.3.1 FlashAttention 算法简介
+### 3.3.1 FlashAttention 算法思路分析
 
-FlashAttention 是斯坦福大学 Tri Dao 等人提出的 IO 感知（IO-Aware）精确注意力算法，通过分块计算与内核融合技术，在保持精确计算的同时，显著降低内存占用并提升计算效率。该算法已成为现代大语言模型训练与推理的标准组件。
+FlashAttention[^fa1] 是斯坦福大学 Tri Dao 等人提出的 IO 感知（IO-Aware）精确注意力算法，通过分块计算与内核融合技术，在保持精确计算的同时，显著降低内存占用并提升计算效率。该算法已成为现代大语言模型训练与推理的标准组件。
 
 
 
@@ -1317,9 +1317,9 @@ $$\text{Attention}(\mathbfit{Q}, \mathbfit{K}, \mathbfit{V}) = \text{softmax}\le
 2. 应用 Softmax 归一化：$\mathbfit{P} = \text{softmax}(\mathbfit{S}) \in \mathbb{R}^{N \times N}$
 3. 与 V 矩阵相乘得到输出：$\mathbfit{O} = \mathbfit{PV} \in \mathbb{R}^{N \times d}$
 
-标准注意力的主要瓶颈在于其 $O(N^2)$ 的内存复杂度，当序列长度 $N$ 较大时，中间矩阵 $\mathbfit{S}$ 和 $\mathbfit{P}$ 的存储开销将成为显存瓶颈。复杂度分析如表 3-26 所示。
+标准注意力的主要瓶颈在于其 $O(N^2)$ 的内存复杂度，当序列长度 $N$ 较大时，中间矩阵 $\mathbfit{S}$ 和 $\mathbfit{P}$ 的存储开销将成为显存瓶颈。复杂度分析如表 3-25 所示。
 
-表 3-26 标准注意力复杂度分析
+表 3-25 标准注意力复杂度分析
 
 | 操作 | 计算复杂度 | 内存复杂度 |
 |-----|-----------|-----------|
@@ -1330,9 +1330,9 @@ $$\text{Attention}(\mathbfit{Q}, \mathbfit{K}, \mathbfit{V}) = \text{softmax}\le
 
 **(1) GPU 内存层次结构与 IO 瓶颈**
 
-现代 GPU 采用分层内存架构，不同层级的内存在容量和带宽上存在数量级差异，如表 3-27 所示。
+现代 GPU 采用分层内存架构，不同层级的内存在容量和带宽上存在数量级差异，如表 3-26 所示。
 
-表 3-27 GPU 内存层次结构（以 A100 为例）
+表 3-26 GPU 内存层次结构（以 A100 为例）
 
 | 内存类型 | 容量 | 带宽 | 相对速度 |
 |---------|------|------|---------|
@@ -1389,9 +1389,9 @@ $$M_{\mathrm{kv}} = 2 \cdot L \cdot N \cdot H \cdot d_{\mathrm{h}} \cdot \text{s
 
 其中 $M_{\mathrm{kv}}$ 为 KV-Cache 显存占用，$L$ 为 Transformer 层数，$N$ 为序列长度，$H$ 为注意力头数，$d_{\mathrm{h}}$ 为每个头的维度。
 
-KV-Cache 的显存占用随序列长度线性增长，对于长上下文场景可能超出单卡显存容量，这也是 MLA 等压缩技术的动因。典型模型的 KV-Cache 显存占用（FP16）如表 3-28 所示。
+KV-Cache 的显存占用随序列长度线性增长，对于长上下文场景可能超出单卡显存容量，这也是 MLA 等压缩技术的动因。典型模型的 KV-Cache 显存占用（FP16）如表 3-27 所示。
 
-表 3-28 典型模型的 KV-Cache 显存占用（FP16）
+表 3-27 典型模型的 KV-Cache 显存占用（FP16）
 
 | 模型 | 层数 | 头数 | 头维度 | 8K 序列 | 32K 序列 | 128K 序列 |
 |-----|------|------|-------|---------|----------|-----------|
@@ -1412,7 +1412,7 @@ FlashAttention 解决的是注意力计算过程中 临时矩阵 $\mathbfit{S}$ 
 
 **3. FlashAttention 技术原理**
 
-FlashAttention 的核心思想是 分块计算（Tiling）与 在线 Softmax（Online Softmax），在 SRAM 中完成注意力计算，避免将完整的 $N \times N$ 注意力矩阵写入 HBM。本节首先介绍 FlashAttention V1 的基础算法，然后讨论 V2 和 V3 的改进。
+FlashAttention 的核心思想是 分块计算（Tiling）与 在线 Softmax[^onlinesoftmax]（Online Softmax），在 SRAM 中完成注意力计算，避免将完整的 $N \times N$ 注意力矩阵写入 HBM。本节首先介绍 FlashAttention V1 的基础算法，然后讨论 V2 和 V3 的改进。
 
 **(1) 分块计算策略**
 
@@ -1512,9 +1512,9 @@ V2 调整了工作分配策略，每个线程块处理更多行（增大 $B_{\ma
 
 V2 改进了内层循环的 warp 调度，减少了寄存器溢出（register spilling）和 bank 冲突。
 
-通过上述优化，V2 在各序列长度下相比 V1 均获得 1.5-1.6 倍的性能提升。FlashAttention V1 vs V2 性能对比如表 3-29 所示。
+通过上述优化，V2 在各序列长度下相比 V1 均获得 1.5-1.6 倍的性能提升。FlashAttention V1 与 V2 性能对比如表 3-28 所示。
 
-表 3-29 FlashAttention V1 vs V2 性能对比（A100 80GB，FP16）
+表 3-28 FlashAttention V1 与 V2 性能对比（A100 80GB，FP16）
 
 | 序列长度 | V1 TFLOPS | V2 TFLOPS | 加速比 |
 |---------|-----------|-----------|--------|
@@ -1559,9 +1559,9 @@ Hopper 原生支持 FP8（8 位浮点）Tensor Core 运算。FlashAttention V3 �
 - Softmax：使用 FP32 保持数值稳定性；
 - PV 矩阵乘法：使用 FP8（E5M2 格式）。
 
-V3 的混合精度策略在不同 FP8 配置下实现了显著的吞吐量提升，同时将精度损失控制在可接受范围内。FlashAttention V3 各精度配置性能如表 3-30 所示。
+V3 的混合精度策略在不同 FP8 配置下实现了显著的吞吐量提升，同时将精度损失控制在可接受范围内。FlashAttention V3 各精度配置性能如表 3-29 所示。
 
-表 3-30 FlashAttention V3 各精度配置性能（H100）
+表 3-29 FlashAttention V3 各精度配置性能（H100）
 
 | 配置 | TFLOPS | 相对 FP16 精度损失 |
 |-----|--------|-------------------|
@@ -1577,9 +1577,9 @@ FlashAttention 系列算法的性能优势体现在计算吞吐量、显存效�
 
 **(1) 端到端性能对比**
 
-FlashAttention 相比标准 PyTorch 实现和 cuDNN 实现，在各序列长度下均展现出显著的性能优势。注意力实现性能对比如表 3-31 所示。
+FlashAttention 相比标准 PyTorch 实现和 cuDNN 实现，在各序列长度下均展现出显著的性能优势。注意力实现性能对比如表 3-30 所示。
 
-表 3-31 注意力实现性能对比（H100 80GB，FP16，batch=8，heads=32，d=128）
+表 3-30 注意力实现性能对比（H100 80GB，FP16，batch=8，heads=32，d=128）
 
 | 实现 | 4K 序列 | 16K 序列 | 64K 序列 |
 |-----|---------|----------|----------|
@@ -1593,9 +1593,9 @@ FlashAttention V3 在 FP8 模式下接近 H100 的理论峰值（989 TFLOPS FP8�
 
 **(2) 内存效率对比**
 
-FlashAttention 将注意力计算的显存复杂度从 $O(N^2)$ 降至 $O(N)$，避免了存储完整的注意力矩阵。显存占用对比如表 3-32 所示。
+FlashAttention 将注意力计算的显存复杂度从 $O(N^2)$ 降至 $O(N)$，避免了存储完整的注意力矩阵。显存占用对比如表 3-31 所示。
 
-表 3-32 显存占用对比（单层注意力，batch=1，heads=1，FP16）
+表 3-31 显存占用对比（单层注意力，batch=1，heads=1，FP16）
 
 | 实现 | 4K 序列 | 16K 序列 | 64K 序列 |
 |-----|---------|----------|----------|
@@ -1607,9 +1607,9 @@ FlashAttention 将注意力计算的显存复杂度从 $O(N^2)$ 降至 $O(N)$，
 
 **(3) 端到端训练加速**
 
-在 GPT-2 (1.5B) 模型训练中，FlashAttention 的加速效果如表 3-33 所示。
+在 GPT-2 (1.5B) 模型训练中，FlashAttention 的加速效果如表 3-32 所示。
 
-表 3-33 GPT-2 训练吞吐量（A100 80GB，8 GPU）
+表 3-32 GPT-2 训练吞吐量（A100 80GB，8 GPU）
 
 | 序列长度 | PyTorch Baseline | FlashAttention V2 | 加速比 |
 |---------|-----------------|-------------------|--------|
@@ -1621,9 +1621,9 @@ FlashAttention 将注意力计算的显存复杂度从 $O(N^2)$ 降至 $O(N)$，
 
 
 
-### 3.3.2 FlashMLA：MLA 结构的 Flash Attention 实现
+### 3.3.2 FlashMLA 实现思路分析
 
-FlashMLA 是 DeepSeek 开源的高性能注意力内核库，专为 DeepSeek-V3 和 DeepSeek-V3.2 模型的多头潜在注意力（Multi-head Latent Attention, MLA）架构深度优化。该库在 NVIDIA Hopper（H800/H100）和 Blackwell（B200）架构上实现了业界领先的性能：解码阶段密集注意力达 660 TFLOPS，稀疏注意力（FP8 KV 缓存）达 410 TFLOPS，预填充阶段达 1450 TFLOPS。
+FlashMLA[^flashmla] 是 DeepSeek 开源的高性能注意力内核库，专为 DeepSeek-V3 和 DeepSeek-V3.2 模型的多头潜在注意力（Multi-head Latent Attention, MLA）架构深度优化。该库在 NVIDIA Hopper（H800/H100）和 Blackwell（B200）架构上实现了业界领先的性能：解码阶段密集注意力达 660 TFLOPS，稀疏注意力（FP8 KV 缓存）达 410 TFLOPS，预填充阶段达 1450 TFLOPS。
 
 
 
@@ -1633,9 +1633,9 @@ MLA 架构将 KV 缓存压缩至低秩潜在空间，在推理解码阶段等价
 
 **(1) MLA 架构的工程挑战**
 
-如第 2 章所述，DeepSeek-V3 采用多头潜在注意力（MLA）架构，将 KV 缓存压缩到低秩潜在空间，显著降低推理阶段的显存占用。MLA 的计算特点使其与标准多头注意力（MHA）存在本质差异，如表 3-34 所示。
+如第 2 章所述，DeepSeek-V3 采用多头潜在注意力（MLA）架构，将 KV 缓存压缩到低秩潜在空间，显著降低推理阶段的显存占用。MLA 的计算特点使其与标准多头注意力（MHA）存在本质差异，如表 3-33 所示。
 
-表 3-34 MLA vs MHA 计算特性对比
+表 3-33 MLA 与 MHA 计算特性对比
 
 | 特性 | MHA | MLA（DeepSeek-V3）|
 |-----|-----|-------------------|
@@ -1714,9 +1714,9 @@ DeepSeek Sparse Attention（DSA）是 DeepSeek-V3.2 引入的 Token 级稀疏注
 
 GPU 内存层次结构利用
 
-GPU 内存由多级层次结构组成，不同层级在容量、带宽和延迟上存在数量级差异。高效利用内存层次是实现高性能内核的关键。FlashMLA 充分利用 Hopper 架构的多层内存结构，如表 3-35 所示。
+GPU 内存由多级层次结构组成，不同层级在容量、带宽和延迟上存在数量级差异。高效利用内存层次是实现高性能内核的关键。FlashMLA 充分利用 Hopper 架构的多层内存结构，如表 3-34 所示。
 
-表 3-35 Hopper 架构内存层次
+表 3-34 Hopper 架构内存层次
 
 | 层级 | 类型 | 容量 | 带宽 | 访问延迟 |
 |-----|------|------|------|---------|
@@ -1734,9 +1734,9 @@ FlashMLA 的分层缓存策略：
 
 **(1) FP8 KV 缓存压缩**
 
-为支持 128K 长上下文，FlashMLA 实现了 FP8 KV 缓存压缩。每个 token 的 KV 缓存从 1152 字节（576 × 2 bytes）压缩至 656 字节，如表 3-36 所示。
+为支持 128K 长上下文，FlashMLA 实现了 FP8 KV 缓存压缩。每个 token 的 KV 缓存从 1152 字节（576 × 2 bytes）压缩至 656 字节，如表 3-35 所示。
 
-表 3-36 FP8 KV 缓存格式（DeepSeek-V3.2）
+表 3-35 FP8 KV 缓存格式（DeepSeek-V3.2）
 
 | 部分 | 大小 | 格式 | 说明 |
 |-----|------|------|------|
@@ -1776,7 +1776,7 @@ FP8 稀疏解码内核面临 去量化瓶颈。H800 不能直接将 float8_e4m3 
 
 根据 NVIDIA 文档，去量化每个 token 需要约 50 个周期，而 MMA 操作仅需 34 个周期。去量化成为性能瓶颈。
 
-FlashMLA 采用 Crossover 技术 解决此问题（详见 3.3.2.6 节）。
+FlashMLA 采用 Crossover 技术解决此问题（详见本节第 6 部分“深入 Hopper GPU 架构”）。
 
 
 
@@ -1786,7 +1786,7 @@ FlashMLA 采用 Crossover 技术 解决此问题（详见 3.3.2.6 节）。
 
 **(1) Seesaw 调度算法**
 
-FlashMLA 提出 Seesaw 调度（跷跷板调度）算法，实现 CUDA Core 与 Tensor Core 的高效重叠。该算法是 FlashAttention-3 Ping-Pong 调度的变体。
+FlashMLA 提出 Seesaw 调度（跷跷板调度）算法，实现 CUDA Core 与 Tensor Core 的高效重叠。该算法是 FlashAttention-3[^fa3] Ping-Pong 调度的变体。
 
 问题背景：
 
@@ -1867,9 +1867,9 @@ FlashMLA 分别在解码阶段（密集与稀疏模式）与预填充阶段进�
 
 **(1) 解码阶段性能**
 
-在解码阶段，FlashMLA 针对内存密集型和计算密集型两种场景分别优化，均能接近硬件理论峰值。FlashMLA 解码阶段性能如表 3-37 所示。
+在解码阶段，FlashMLA 针对内存密集型和计算密集型两种场景分别优化，均能接近硬件理论峰值。FlashMLA 解码阶段性能如表 3-36 所示。
 
-表 3-37 FlashMLA 解码阶段性能（H800 SXM5，CUDA 12.8）
+表 3-36 FlashMLA 解码阶段性能（H800 SXM5，CUDA 12.8）
 
 | 内核类型 | 配置 | 性能 | 备注 |
 |---------|------|------|------|
@@ -1880,9 +1880,9 @@ FlashMLA 分别在解码阶段（密集与稀疏模式）与预填充阶段进�
 
 **(2) 预填充阶段性能**
 
-预填充阶段处理整个输入序列，通常为计算密集型，FlashMLA 通过 Seesaw 调度和细粒度流水线实现高吞吐。FlashMLA 预填充阶段性能如表 3-38 所示。
+预填充阶段处理整个输入序列，通常为计算密集型，FlashMLA 通过 Seesaw 调度和细粒度流水线实现高吞吐。FlashMLA 预填充阶段性能如表 3-37 所示。
 
-表 3-38 FlashMLA 预填充阶段性能
+表 3-37 FlashMLA 预填充阶段性能
 
 | GPU | 内核类型 | 前向性能 | 反向性能 |
 |-----|---------|---------|---------|
@@ -1894,9 +1894,9 @@ B200（Blackwell 架构）的性能接近 H800 的 2.3 倍，主要得益于更�
 
 与其他实现对比
 
-FlashMLA 专为 DeepSeek MLA 架构设计，相比通用注意力实现具有更好的性能和功能支持。注意力内核性能对比如表 3-39 所示。
+FlashMLA 专为 DeepSeek MLA 架构设计，相比通用注意力实现具有更好的性能和功能支持。注意力内核性能对比如表 3-38 所示。
 
-表 3-39 注意力内核性能对比（H100 80GB，解码阶段）
+表 3-38 注意力内核性能对比（H100 80GB，解码阶段）
 
 | 实现 | 性能（TFLOPS）| 支持 MLA | 支持稀疏 |
 |-----|--------------|---------|---------|
@@ -1911,7 +1911,7 @@ FlashMLA 在 MLA 架构上实现了最优性能，特别是在 DeepSeek 模型�
 
 ## 3.4 强化学习算法的工程实现
 
-组相对策略优化（Group Relative Policy Optimization, GRPO）是 DeepSeek 在 2024 年 2 月发布的 DeepSeekMath 论文中首次提出的强化学习算法，并在 2025 年 1 月的 DeepSeek-R1 推理模型中得到广泛应用。GRPO 通过消除传统 PPO 算法中的 Critic 模型，相对于人类反馈强化学习（RLHF）实现了计算需求减半，成为当前开源大语言模型推理能力训练的主流算法。
+组相对策略优化（Group Relative Policy Optimization, GRPO）是 DeepSeek 在 2024 年 2 月发布的 DeepSeekMath 论文[^dsmath]中首次提出的强化学习算法，并在 2025 年 1 月的 DeepSeek-R1 推理模型[^r1]中得到广泛应用。GRPO 通过消除传统 PPO 算法中的 Critic 模型，相对于人类反馈强化学习（RLHF）实现了计算需求减半，成为当前开源大语言模型推理能力训练的主流算法。
 
 本节系统介绍 GRPO 算法的工程实现，包括算法原理、Unsloth/NeMo-RL/SWIFT 等主流框架的技术细节，以及 DAPO、StepGRPO 等最新变体的创新点。
 
@@ -1921,7 +1921,7 @@ FlashMLA 在 MLA 架构上实现了最优性能，特别是在 DeepSeek 模型�
 
 **1. 算法创新**
 
-传统的 PPO（Proximal Policy Optimization）算法需要同时训练策略模型（Policy Model）和价值模型（Value Model/Critic），其优化目标为：
+传统的 PPO[^ppo]（Proximal Policy Optimization）算法需要同时训练策略模型（Policy Model）和价值模型（Value Model/Critic），其优化目标为：
 
 $$\mathcal{J}_{\mathrm{PPO}}(\theta) = \mathbb{E}_{(x,y) \sim \pi_\theta} \left[ \min\left( r(\theta) A^{\pi_{\theta_{\mathrm{old}}}}(x,y), \text{clip}(r(\theta), 1-\epsilon, 1+\epsilon) A^{\pi_{\theta_{\mathrm{old}}}}(x,y) \right) \right] $$
 
@@ -1937,9 +1937,9 @@ $$\hat{A}_i = \frac{r(x, y_i) - \mu_G}{\sigma_G + \epsilon}, \quad \mu_G = \frac
 
 其中 $\hat{A}_i$ 为第 $i$ 个响应的估计优势值（"帽子"符号 $\hat{\cdot}$ 表示估计量），$r(x, y_i)$ 为奖励函数对提示 $x$ 和响应 $y_i$ 的评分，$\mu_G$ 为组内奖励均值（下标 $G$ 表示该统计量基于 $G$ 个样本计算），$\sigma_G$ 为组内奖励标准差。
 
-GRPO vs PPO 对比如表 3-40 所示。
+GRPO 与 PPO 对比如表 3-39 所示。
 
-表 3-40 GRPO vs PPO 对比
+表 3-39 GRPO 与 PPO 对比
 
 | 维度 | PPO | GRPO | 改进 |
 |------|-----|------|------|
@@ -1983,13 +1983,13 @@ GRPO 的优势估计依赖组内奖励的均值和方差，对数值精度敏感
 
 ### 3.4.2 Unsloth 的 GRPO 实现
 
-Unsloth 是由 Unsloth AI 开发的开源高效微调框架，专注于单卡和小规模多卡训练场景。Unsloth 的 GRPO 实现通过创新的内存管理和计算优化，在单张 80GB GPU 上实现了 110K 上下文长度的 GRPO 训练。
+Unsloth[^unsloth] 是由 Unsloth AI 开发的开源高效微调框架，专注于单卡和小规模多卡训练场景。Unsloth 的 GRPO 实现通过创新的内存管理和计算优化，在单张 80GB GPU 上实现了 110K 上下文长度的 GRPO 训练。
 
 **1. 内存高效算法**
 
-GRPO 训练内存占用分解如表 3-41 所示。
+GRPO 训练内存占用分解如表 3-40 所示。
 
-表 3-41 GRPO 训练内存占用分解（Llama-3.1-8B，G=8，T=20K）
+表 3-40 GRPO 训练内存占用分解（Llama-3.1-8B，G=8，T=20K）
 
 | 组件 | TRL + FA2 | Unsloth | 节省 |
 |------|-----------|---------|------|
@@ -2015,9 +2015,9 @@ Unsloth 将 GRPO 的生成和训练阶段分块处理，避免同时存储所有
 
 **(3) 技术 3：选择性梯度检查点**
 
-Unsloth 不对所有层使用梯度检查点，而是智能选择内存密集型操作，如表 3-42 所示。
+Unsloth 不对所有层使用梯度检查点，而是智能选择内存密集型操作，如表 3-41 所示。
 
-表 3-42 各操作的检查点策略
+表 3-41 各操作的检查点策略
 
 | 操作 | 激活值大小 | 重计算成本 | Unsloth 策略 |
 |------|------------|------------|--------------|
@@ -2040,9 +2040,9 @@ GRPO 训练包含生成（推理）和训练两个阶段，Unsloth 的 Standby �
 
 Unsloth 在 2025 年 11 月引入了 FP8 精度的 GRPO 支持。关键设计原则是奖励和优势计算始终使用 FP32，确保数值稳定性。
 
-Unsloth GRPO 混合精度配置如表 3-43 所示。
+Unsloth GRPO 混合精度配置如表 3-42 所示。
 
-表 3-43 Unsloth GRPO 混合精度配置
+表 3-42 Unsloth GRPO 混合精度配置
 
 | 组件 | 前向精度 | 存储精度 | 说明 |
 |------|---------|---------|------|
@@ -2056,9 +2056,9 @@ FP8 GRPO 相比 BF16：显存占用降低 40-50%，训练速度提升 30-40%，�
 
 
 
-### 3.4.3 NeMo-RL：大规模分布式 GRPO
+### 3.4.3 NeMo-RL 的 GRPO 实现
 
-NeMo-RL 是 NVIDIA 开发的大规模强化学习框架，专为多节点、多 GPU 训练设计，与 Megatron-Core 深度集成。
+NeMo-RL[^nemorl] 是 NVIDIA 开发的大规模强化学习框架，专为多节点、多 GPU 训练设计，与 Megatron-Core 深度集成。
 
 **1. 分离式架构**
 
@@ -2070,9 +2070,9 @@ NeMo-RL 采用分离式架构（Decoupled Architecture），生成和训练在�
 
 **2. 并行策略**
 
-NeMo-RL 支持多种并行策略组合，可根据模型规模和硬件资源灵活配置。大规模 GRPO 训练需要将生成器（Generator）和训练器（Trainer）分配到不同 GPU 组。NeMo-RL 并行配置示例如表 3-44 所示。
+NeMo-RL 支持多种并行策略组合，可根据模型规模和硬件资源灵活配置。大规模 GRPO 训练需要将生成器（Generator）和训练器（Trainer）分配到不同 GPU 组。NeMo-RL 并行配置示例如表 3-43 所示。
 
-表 3-44 NeMo-RL 并行配置示例
+表 3-43 NeMo-RL 并行配置示例
 
 | 模型规模 | TP | PP | DP | EP | Generator GPU | Trainer GPU | 总 GPU |
 |---------|----|----|----|----|---------------|-------------|--------|
@@ -2096,20 +2096,20 @@ NeMo-RL 使用 TensorRT-LLM 进行高效推理，相比标准 PyTorch：
 
 
 
-### 3.4.4 SWIFT 框架：中文生态的 GRPO 实现
+### 3.4.4 SWIFT 的 GRPO 实现
 
-SWIFT（Scalable lightWeight Infrastructure for Fine-Tuning）是阿里巴巴魔搭社区开发的大模型训练框架，于 2025 年被 AAAI 接收，对中文模型生态有深度支持。
+SWIFT[^swift]（Scalable lightWeight Infrastructure for Fine-Tuning）是阿里巴巴魔搭社区开发的大模型训练框架，于 2025 年被 AAAI 接收，对中文模型生态有深度支持。
 
 **1. 多种算法支持**
 
-SWIFT 支持多种 GRPO 变体算法，每种算法针对特定场景优化，用户可根据任务特点选择合适的算法。SWIFT 支持的强化学习算法如表 3-45 所示。
+SWIFT 支持多种 GRPO 变体算法，每种算法针对特定场景优化，用户可根据任务特点选择合适的算法。SWIFT 支持的强化学习算法如表 3-44 所示。
 
-表 3-45 SWIFT 支持的强化学习算法
+表 3-44 SWIFT 支持的强化学习算法
 
 | 算法 | 全称 | 核心特点 | 适用场景 |
 |------|------|---------|---------|
 | GRPO | Group Relative Policy Optimization | 组相对优势估计 | 通用推理 |
-| DAPO | Direct Alignment Policy Optimization | 动态采样 + 不对称裁剪 | 长 CoT 推理 |
+| DAPO | Decoupled Clip and Dynamic sAmpling Policy Optimization | 动态采样 + 不对称裁剪 | 长 CoT 推理 |
 | GSPO | Guided Step Policy Optimization | 步级引导信号 | 数学推理 |
 | SAPO | Sequential Alignment Policy Optimization | 序列级对齐 | 多轮对话 |
 | CISPO | Conservative Iterative Self-Play Optimization | 保守式自博弈 | 代码生成 |
@@ -2133,7 +2133,7 @@ Megatron 并行支持示例如下：
 
 **1. DAPO：长 CoT 场景优化**
 
-DAPO（Decoupled Clip and Dynamic sAmpling Policy Optimization）是字节跳动提出的 GRPO 改进算法，专为长链推理设计，包含四大创新：
+DAPO[^dapo]（Decoupled Clip and Dynamic sAmpling Policy Optimization）是字节跳动提出的 GRPO 改进算法，专为长链推理设计，包含四大创新：
 
 1. Clip-Higher：不对称裁剪策略
 
@@ -2169,7 +2169,7 @@ DAPO 性能：Qwen2.5-32B 在 AIME 2024 从 47 分提升至 50 分，训练步�
 
 **2. StepGRPO：步级奖励优化**
 
-StepGRPO 在 GRPO 基础上引入步级奖励（Step-level Reward），由清华大学在 R1-VL 论文（ICCV 2025）中提出。
+StepGRPO 在 GRPO 基础上引入步级奖励（Step-level Reward），由清华大学在 R1-VL 论文[^r1vl]中提出。
 
 传统 GRPO 仅在最终结果给予奖励，StepGRPO 在每个推理步骤给予奖励：
 
@@ -2185,9 +2185,9 @@ $$r_{\mathrm{accuracy}}(y_{1:t}) = \frac{1}{K} \sum_{k=1}^K \mathbb{1}[\text{key
 
 步级有效性奖励（StepRVR）：评估推理完整性和逻辑一致性，包括是否有结论、是否有解释、是否有多步推理等。
 
-步级奖励使模型在推理过程中获得更密集的反馈信号，加速学习关键推理步骤。StepGRPO vs GRPO 性能对比如表 3-46 所示。
+步级奖励使模型在推理过程中获得更密集的反馈信号，加速学习关键推理步骤。StepGRPO 与 GRPO 性能对比如表 3-45 所示。
 
-表 3-46 StepGRPO vs GRPO 性能对比
+表 3-45 StepGRPO 与 GRPO 性能对比
 
 | 指标 | GRPO | StepGRPO | 提升 |
 |------|------|----------|------|
@@ -2198,85 +2198,17 @@ $$r_{\mathrm{accuracy}}(y_{1:t}) = \frac{1}{K} \sum_{k=1}^K \mathbb{1}[\text{key
 
 
 
-### 3.4.6 工程实践总结
+## 3.5 DSpark 原理与技术解析
 
-**1. 框架选择指南**
+DSpark[^dspark] 是 DeepSeek-AI 与北京大学联合发布的**投机解码**（speculative decoding）框架，用于加速 DeepSeek-V4 的在线推理服务。需要注意，它并不是训练框架——V4 的训练基础设施 HAI-LLM 并未开源；随论文配套开源的仓库 DeepSpec 则是草稿模型（draft model）的训练与评测代码库（见 3.5.7 节）。本节依次介绍 DSpark 的算法架构（半自回归生成与置信度调度验证）、训练方法与离线实验，最后剖析其在 DeepSeek-V4 中的线上部署与配套开源代码库 DeepSpec。
 
-不同 GRPO 框架针对不同规模和场景进行了优化，选择合适的框架可以显著提升开发效率和训练效果。GRPO 框架对比与选择如表 3-47 所示。
-
-表 3-47 GRPO 框架对比与选择
-
-| 场景 | 推荐框架 | GPU 配置 | 理由 |
-|------|---------|---------|------|
-| 单卡快速实验（< 13B）| Unsloth | 1x A100 40GB | 内存优化最佳 |
-| 单卡长上下文（32K+）| Unsloth | 1x H100 80GB | Standby 特性 |
-| 中文模型训练 | SWIFT | 4-8x A100 | 中文生态好 |
-| 大规模分布式（> 70B）| NeMo-RL | 64-512x H100 | Megatron 并行 |
-| 数学推理 | SWIFT + GenRM | 4x A100 | 自定义奖励 |
-| 长 CoT 推理 | DAPO | 32x H100 | 熵坍塌优化 |
-| 步级密集奖励 | StepGRPO | 8x A100 | PRM 支持 |
-
-**2. 超参数调优建议**
-
-GRPO 的训练效果对超参数较为敏感，合理的超参数配置可避免常见的训练问题（如熵坍塌、OOM 等）。GRPO 关键超参数如表 3-48 所示。
-
-表 3-48 GRPO 关键超参数
-
-| 参数 | 推荐范围 | 说明 | 调优策略 |
-|------|---------|------|---------|
-| `group_size` | 4-16 | 每个提示的采样数 | 显存大用 8-16，小用 4-8 |
-| `kl_coeff` | 0.01-0.2 | KL 散度惩罚系数 | 从 0.05 开始，太大会限制探索 |
-| `clip_ratio` | 0.15-0.3 | 策略比率裁剪范围 | 标准 0.2，长 CoT 用 0.3 |
-| `learning_rate` | 1e-6 - 5e-5 | 学习率 | 比 SFT 低 5-10 倍 |
-| `max_new_tokens` | 512-4096 | 生成最大长度 | 数学题 2048，代码 4096 |
-| `temperature` | 0.6-0.9 | 采样温度 | 探索任务高（0.8），准确任务低（0.6）|
-
-**3. 常见问题与解决方案**
-
-GRPO 训练过程中可能遇到内存溢出、训练不稳定等问题，以下总结了常见问题的诊断方法与解决方案。GRPO 训练常见问题如表 3-49 所示。
-
-表 3-49 GRPO 训练常见问题
-
-| 问题 | 症状 | 可能原因 | 解决方案 |
-|------|------|---------|---------|
-| OOM | CUDA out of memory | KV-Cache 过大 | 减小 `group_size` 或使用分块 |
-| 熵坍塌 | 生成重复内容 | 裁剪范围太小 | 增大 `clip_ratio` 或用 DAPO |
-| 奖励方差大 | 训练不稳定 | 组大小太小 | 增大 `group_size` 至 8+ |
-| 生成速度慢 | 训练时间过长 | 未使用推理加速 | 集成 vLLM/TensorRT-LLM |
-| 精度下降 | FP8 训练失败 | 奖励计算精度不足 | 奖励用 FP32，模型用 FP8 |
-| 梯度爆炸 | Loss 变为 NaN | 学习率过高 | 降低 LR 或用梯度裁剪 |
-
-**4. 发展趋势**
-
-1. 更高效的采样
-- 投机解码（Speculative Decoding）：2-3x 生成加速；
-- 并行采样（Parallel Sampling）：同时生成多个响应。
-
-2. 更强的推理能力
-- 多模态 GRPO：视觉推理、视频理解；
-- 工具增强 GRPO：API 调用、代码执行。
-
-3. 更低的资源门槛
-- 量化训练：INT4/INT8 GRPO；
-- LoRA-GRPO：低秩适应的 GRPO。
-
-4. 更灵活的奖励
-- 多目标奖励：准确性 + 效率 + 安全性；
-- 自动奖励学习：从人类偏好学习奖励。
-
-
-
-## 3.5 DSpark：面向生产环境的投机解码框架
-
-DSpark（Cheng et al., 2026）是 DeepSeek-AI 与北京大学联合发布的**投机解码**（speculative decoding）框架，用于加速 DeepSeek-V4 的在线推理服务。需要注意，它并不是训练框架——V4 的训练基础设施 HAI-LLM 并未开源；随论文配套开源的仓库 DeepSpec 则是草稿模型（draft model）的训练与评测代码库（见 3.5.7 节）。本节依次介绍 DSpark 的算法架构（半自回归生成与置信度调度验证）、训练方法与离线实验，最后剖析其在 DeepSeek-V4 生产环境中的部署实践。
-
-### 3.5.1 研究背景：投机解码及其两条技术路线
+### 3.5.1 投机解码原理与技术路线
 
 #### 3.5.1.1 自回归推理的延迟瓶颈
 
 大语言模型以自回归方式生成文本：每个新 token 都需要以全部前文为条件做一次完整的前向传播，推理延迟与输出长度成正比。由于解码阶段的算术强度低（每生成一个 token 都要完整读取一遍模型权重，计算量却很小），GPU 利用率低下、用户感知等待时间长，构成生产环境 LLM 服务的首要瓶颈——对实时对话助手和多轮智能体工作流等延迟敏感场景尤甚。
 
-投机解码（Leviathan et al., 2023; Chen et al., 2023）提供了一个有数学保证的解法：用一个轻量**草稿模型**（draft model）$M_d$ 提出一段候选 token，再由完整的**目标模型**（target model）$M_t$ 在单次前向传播中并行验证整段候选。验证采用拒绝采样规则：在草稿位置 $k$，目标模型计算自身分布 $p_k^t$ 并与草稿分布 $p_k^d$ 比较，token $x_k$ 以概率 $\min(1,\ p_k^t(x_k)/p_k^d(x_k))$ 被接受；验证从左到右进行，位置 $k$ 处的首次拒绝会丢弃其后全部候选。这一规则**严格保持目标模型的输出分布**——加速是无损的。
+投机解码[^specdec]提供了一个有数学保证的解法：用一个轻量**草稿模型**（draft model）$M_d$ 提出一段候选 token，再由完整的**目标模型**（target model）$M_t$ 在单次前向传播中并行验证整段候选。验证采用拒绝采样规则：在草稿位置 $k$，目标模型计算自身分布 $p_k^t$ 并与草稿分布 $p_k^d$ 比较，token $x_k$ 以概率 $\min(1,\ p_k^t(x_k)/p_k^d(x_k))$ 被接受；验证从左到右进行，位置 $k$ 处的首次拒绝会丢弃其后全部候选。这一规则**严格保持目标模型的输出分布**——加速是无损的。
 
 设 $\tau$ 为每轮解码平均接受的 token 数，$T_{\text{draft}}$、$T_{\text{verify}}$ 分别为起草与验证的墙钟时间，则每 token 平均延迟为：
 
@@ -2288,11 +2220,11 @@ $$
 
 #### 3.5.1.2 自回归草稿器：准但慢
 
-早期草稿器沿用自回归结构（如 EAGLE 系列，Li et al., 2024, 2026）：每个位置以先前已采样的 token 为条件逐个生成。显式的 token 间依赖建模带来高接受率，但起草成本与草稿块长度 $\gamma$ 成正比（$T_{\text{draft}} \propto \gamma$），迫使这类方法只能使用短草稿块和浅层网络（EAGLE3 仅 1 层 Transformer）来控制延迟。
+早期草稿器沿用自回归结构（如 EAGLE 系列[^eagle]）：每个位置以先前已采样的 token 为条件逐个生成。显式的 token 间依赖建模带来高接受率，但起草成本与草稿块长度 $\gamma$ 成正比（$T_{\text{draft}} \propto \gamma$），迫使这类方法只能使用短草稿块和浅层网络（EAGLE3 仅 1 层 Transformer）来控制延迟。
 
 #### 3.5.1.3 并行草稿器：快但存在后缀衰减
 
-并行草稿器（如 DFlash，Chen et al., 2026）在单次前向传播中同时产出全部 $\gamma$ 个位置的候选，起草延迟几乎与块长无关，因此可以负担更深的网络（DFlash 为 5 层）和更长的草稿块。
+并行草稿器（如 DFlash[^dflash]）在单次前向传播中同时产出全部 $\gamma$ 个位置的候选，起草延迟几乎与块长无关，因此可以负担更深的网络（DFlash 为 5 层）和更长的草稿块。
 
 DFlash 的关键技术是 **KV 注入**：在 prefill 阶段，从目标模型的一组层 $\{l_1, \ldots, l_m\}$ 提取隐状态，拼接后投影到草稿模型的隐空间：
 
@@ -2302,7 +2234,7 @@ $$
 
 这些上下文特征沿序列维度拼入草稿模型每一层的 Key 和 Value，块内所有位置彼此双向可见。草稿模型复用目标模型的 embedding 层与语言建模头（均冻结）。
 
-并行结构的代价是**块内 token 相互独立预测**，无法建模 token 间依赖。当上下文允许多种合理续写时——例如 "of course" 与 "no problem" 均合理——并行草稿器可能在位置 1 采到 "of"、位置 2 采到 "problem"，拼出 "of problem" 这类不连贯组合。这一现象称为**多模态碰撞**（multi-modal collision, Gu et al., 2018）：每个位置对所有可能的前驱边缘化，而非以实际采样的前缀为条件。其后果是接受率沿草稿块快速衰减（**后缀衰减**，suffix decay），既浪费起草计算也浪费验证计算。
+并行结构的代价是**块内 token 相互独立预测**，无法建模 token 间依赖。当上下文允许多种合理续写时——例如 "of course" 与 "no problem" 均合理——并行草稿器可能在位置 1 采到 "of"、位置 2 采到 "problem"，拼出 "of problem" 这类不连贯组合。这一现象称为**多模态碰撞**（multi-modal collision）[^gu2018]：每个位置对所有可能的前驱边缘化，而非以实际采样的前缀为条件。其后果是接受率沿草稿块快速衰减（**后缀衰减**，suffix decay），既浪费起草计算也浪费验证计算。
 
 #### 3.5.1.4 系统级瓶颈：验证长度的选择
 
@@ -2371,11 +2303,11 @@ $$
 c_k^* = 1 - \tfrac{1}{2}\big\|p_k^d - p_k^t\big\|_1
 $$
 
-这正是投机解码奠基论文（Leviathan et al., 2023）推导出的逐位置接受概率闭式解。置信度头只需拟合这个可直接计算的目标，不依赖黑盒式的间接监督。
+这正是投机解码奠基论文[^specdec]推导出的逐位置接受概率闭式解。置信度头只需拟合这个可直接计算的目标，不依赖黑盒式的间接监督。
 
 #### 3.5.3.2 事后校准：顺序温度缩放（STS）
 
-与仅需置信度分数正确排序的阈值式验证启发法不同，DSpark 的硬件感知调度需要**累积接受概率的绝对量值**来计算期望接受长度。而神经置信度估计普遍存在过自信问题（Guo et al., 2017）：原始置信度头判别力很强（ROC-AUC 0.81–0.90），但期望校准误差（ECE）达 3%–8%，直接使用会扭曲吞吐量估计。
+与仅需置信度分数正确排序的阈值式验证启发法不同，DSpark 的硬件感知调度需要**累积接受概率的绝对量值**来计算期望接受长度。而神经置信度估计普遍存在过自信问题[^guo2017]：原始置信度头判别力很强（ROC-AUC 0.81–0.90），但期望校准误差（ECE）达 3%–8%，直接使用会扭曲吞吐量估计。
 
 为此 DSpark 引入**顺序温度缩放**（Sequential Temperature Scaling, STS）。由于每个 $c_i$ 建模条件概率，链式法则下草稿前缀被整体接受的联合概率分解为累积乘积 $\prod_{i \le k} c_i$。STS 在保留验证集上从左到右逐位置校准该联合概率：对每个位置 $k \in \{1, \ldots, \gamma\}$，通过一维网格搜索找到使累积乘积的 ECE 最小的温度标量，且固定所有先前位置已校准的分数。温度缩放是保序变换——它将预测概率修正到与经验接受率一致，而不打乱置信度头学到的相对排序。校准后平均 ECE 降至约 1%。
 
@@ -2393,7 +2325,7 @@ $$
 
 #### 3.5.3.4 无损性与因果约束
 
-无损投机解码严格要求**非预期性**（non-anticipating property）：接纳决策不得依赖未来候选 token（Chen et al., 2023; Leviathan et al., 2023）。由于置信度头依赖前一已采样 token 的 Markov 特征，计算下一存活概率 $a_{r,k+1}$ 需要实例化候选 $x_{r,k}$——若做回溯式全局搜索，会把 $x_{r,k}$ 泄漏进第 $k$ 步的接纳决策，引入选择偏差（原论文附录 A 给出了具体反例）。贪心搜索中的逐步早停机制保证截断决策只依赖已处理的前缀，从而精确保持目标分布。该逐步早停当且仅当 $\Theta$ 为单峰时给出全局最大吞吐——这隐含假设硬件容量曲线光滑衰减；真实硬件不满足该假设时的工程适配见 3.5.6.2 节。
+无损投机解码严格要求**非预期性**（non-anticipating property）：接纳决策不得依赖未来候选 token[^specdec]。由于置信度头依赖前一已采样 token 的 Markov 特征，计算下一存活概率 $a_{r,k+1}$ 需要实例化候选 $x_{r,k}$——若做回溯式全局搜索，会把 $x_{r,k}$ 泄漏进第 $k$ 步的接纳决策，引入选择偏差（原论文附录 A 给出了具体反例）。贪心搜索中的逐步早停机制保证截断决策只依赖已处理的前缀，从而精确保持目标分布。该逐步早停当且仅当 $\Theta$ 为单峰时给出全局最大吞吐——这隐含假设硬件容量曲线光滑衰减；真实硬件不满足该假设时的工程适配见 3.5.6.2 节。
 
 ### 3.5.4 训练方法
 
@@ -2464,11 +2396,11 @@ DSpark 在全部目标模型与全部基准域上一致优于两条基线。以�
 
 **置信度头的剪枝能力（静态阈值扫描）**。在 Qwen3-4B 上做离线阈值扫描：随着置信度阈值提高，估计器持续滤除终将被拒的 token，整体接受率稳步上升。剪枝效果在对话负载上最显著——接受率从 45.7% 升至 95.7%；结构化任务剪枝温和，数学从 76.9% 升至 92.5%，代码从 67.6% 升至 92.0%。需要注意这是以每步保留 token 数变少为代价的诊断性实验，不应直接解读为端到端加速比。
 
-### 3.5.6 DeepSeek-V4 生产部署
+### 3.5.6 DeepSeek-V4 中的线上部署
 
 #### 3.5.6.1 V4 配套草稿模型的配置
 
-与 DeepSeek-V4-Flash 及 V4-Pro（预览版）共同部署的 DSpark 草稿模型，其并行主干由 3 个 MoE 层（DeepSeekMoE 结构，Dai et al., 2024）组成，配合 mHC（多路残差连接，见 2.6 节）与窗口 128 的滑动窗口注意力；最大草稿块长 $\gamma = 5$，串行建模采用 Markov 头。置信度头与草稿模型端到端联合训练，随后经 STS 校准以提供可靠的调度信号。
+与 DeepSeek-V4-Flash 及 V4-Pro（预览版）共同部署的 DSpark 草稿模型，其并行主干由 3 个 MoE 层（DeepSeekMoE 结构[^dsmoe]）组成，配合 mHC（多路残差连接，见 2.6 节）与窗口 128 的滑动窗口注意力；最大草稿块长 $\gamma = 5$，串行建模采用 Markov 头。置信度头与草稿模型端到端联合训练，随后经 STS 校准以提供可靠的调度信号。
 
 #### 3.5.6.2 调度器的异步化改造
 
@@ -2484,7 +2416,7 @@ DSpark 的解法是让调度器**异步运行**：用两步之前的置信度头
 
 #### 3.5.6.4 线上性能
 
-线上评测将 DSpark-5（最大草稿长度 $\gamma = 5$）与既有生产基线 MTP-1（单 token 多词元预测，DeepSeek-AI, 2024）在 V4-Flash 与 V4-Pro（均为预览版）的生产服务引擎中对比。MTP-1 之所以是历史生产配置，是因为静态多 token 草稿器（如 MTP-3/5）在高并发下验证开销过大、会严格拉低总吞吐——这一对比恰好检验 DSpark 能否在动态服务环境中安全释放长草稿块的性能潜力。所有数据点为真实用户流量的原始遥测采样。
+线上评测将 DSpark-5（最大草稿长度 $\gamma = 5$）与既有生产基线 MTP-1（单 token 多词元预测[^dsv3]）在 V4-Flash 与 V4-Pro（均为预览版）的生产服务引擎中对比。MTP-1 之所以是历史生产配置，是因为静态多 token 草稿器（如 MTP-3/5）在高并发下验证开销过大、会严格拉低总吞吐——这一对比恰好检验 DSpark 能否在动态服务环境中安全释放长草稿块的性能潜力。所有数据点为真实用户流量的原始遥测采样。
 
 服务系统的帕累托前沿由总吞吐（token/s/gpu）与单用户生成速度（tok/s/user，交互性）两个相互竞争的目标构成。以交互性 SLA（服务等级协议，规定系统必须保证的最低单用户生成速度）为锚点：
 
@@ -2497,143 +2429,43 @@ DSpark 的解法是让调度器**异步运行**：用两步之前的置信度头
 
 前缀调度器最小化的是目标模型侧的验证浪费，但草稿侧仍有一笔固定成本：并行主干生成初始 $\gamma$-token 块的前向传播。对于接受率天生极低的复杂请求（如长链条推理难题），这笔前置起草计算无法回收。论文提出的未来方向是在草稿模型内引入难度感知的早退（difficulty-aware early exit），让这类请求跳过整块草稿生成。
 
-### 3.5.7 开源生态：DeepSpec 代码库
+### 3.5.7 配套开源代码库 DeepSpec
 
-随论文开源的 **DeepSpec**（github.com/deepseek-ai/DeepSpec，MIT 许可）是一个以算法为中心的投机解码训练代码库，包含数据准备工具、草稿模型实现、训练与评测脚本。需要说明其边界：它面向**公开可复现的研究设定**（目标模型为 Qwen3-4B/8B/14B 与 Gemma4-12B），不包含 DeepSeek-V4 本体的训练代码，也不包含生产推理引擎（调度器与 kernel 改造未开源）。
+随论文开源的 **DeepSpec**[^deepspec]（MIT 许可）是一个以算法为中心的投机解码训练代码库，包含数据准备工具、草稿模型实现、训练与评测脚本。需要说明其边界：它面向**公开可复现的研究设定**（目标模型为 Qwen3-4B/8B/14B 与 Gemma4-12B），不包含 DeepSeek-V4 本体的训练代码，也不包含生产推理引擎（调度器与 kernel 改造未开源）。
 
 工作流分三个阶段：**数据准备**（下载 prompt、用目标模型重新生成回答、构建目标输出缓存——默认 Qwen3-4B 设定下缓存约 38 TB，因为需要存储目标模型的隐状态供离线监督）→ **训练**（每张可见 GPU 一个 worker，默认单机 8 卡）→ **评测**（在 GSM8K、MATH500、AIME25、HumanEval、MBPP、LiveCodeBench、MT-Bench、Alpaca、Arena-Hard-v2 上测量接受长度）。
 
 代码库统一实现了三种草稿算法——Eagle3、DFlash 与 DSpark——共享同一训练框架与数据管线，使横向对比公平可复现；论文 Table 1 的全部 12 个检查点（3 算法 × 4 目标模型）已在 Hugging Face 发布。以 `dspark_qwen3_4b` 配置为例，可以读出与论文一致的关键超参：块长 7、草稿 5 层、KV 注入取目标模型第 $\{1, 9, 17, 25, 33\}$ 层、Markov 秩 256、损失权重 $\alpha_{\text{ce}}=0.1$ / $\alpha_{\text{tv}}=0.9$ / $\alpha_{\text{conf}}=1.0$、bf16 精度、全局批 512、训练 10 个 epoch。README 特别提醒：引用这些结果时须对齐仓库内的训练设定，否则比较无意义；面向特定领域使用时建议重新微调草稿模型，目标模型以思考模式运行时尤其如此。
 
-### 3.5.8 本节小结
-
-DSpark 是投机解码从"离线算法"走向"生产系统"的一个代表性样本，其贡献可分三层：
-
-1. **算法层：半自回归生成**。用"深并行主干 + 轻量串行头"的组合同时取得并行草稿器的低延迟与自回归草稿器的依赖建模。逐位置条件接受率分析给出了清晰的机制解释：深主干赢在首位置容量（杠杆最大的位置），串行头修复后缀衰减。2 层 DSpark 超过 5 层 DFlash 的消融结果表明，一点自回归的参数效率远高于堆叠并行深度。
-2. **调度层：置信度调度验证**。置信度头拟合接受概率的解析真值（总变差距离闭式解），经顺序温度缩放校准后，交给硬件感知调度器做全局吞吐最大化的贪心分配。验证长度从静态超参变为随负载自适应的动态量。
-3. **系统层：生产落地**。异步调度（两步延迟）解决与 ZOS 流水线的冲突并天然构成无损性的因果屏障；变长验证通过"物理执行与逻辑跟踪解耦"落进稀疏注意力 kernel。线上收益的诚实口径是：匹配吞吐下单用户生成速度提升 60%–85%（V4-Flash）/ 57%–78%（V4-Pro）；严苛 SLA 锚点下的 661%/406% 属于基线接近失效时的定性区间，论文自身明确不建议作为代表性加速倍数引用。
-
-表 3-50 三类草稿器的架构对比
-
-| 维度 | Eagle3（自回归） | DFlash（并行） | DSpark（半自回归） |
-|------|----------------|---------------|-------------------|
-| 起草延迟 | $O(\gamma)$ | $O(1)$ | $O(1)$ 主导（串行头开销 0.2%–1.3%） |
-| 网络深度 | 1 层（受延迟约束） | 5 层 | 5 层（生产版 3 个 MoE 层） |
-| token 间依赖 | 完整 | 无（多模态碰撞） | 一阶转移（Markov 头） |
-| 首位置接受率 | 低（容量受限） | 高 | 高（继承并行主干） |
-| 后缀衰减 | 无（条件接受率稳中有升） | 严重 | 已缓解 |
-| 验证长度 | 静态 | 静态 | 置信度调度、随负载自适应 |
-
-## 参考文献
-
-1. Micikevicius, P., Stosic, D., Burgess, N., Cornea, M., Dubey, P., Grisenthwaite, R., Ha, S., Heinecke, A., Judd, P., Kamalu, J., Mellempudi, N., Oberman, S., Shoeybi, M., Siu, M., & Wu, H. (2022). FP8 Formats for Deep Learning. arXiv:2209.05433.
-
-2. Dao, T., Fu, D., Ermon, S., Rudra, A., & Ré, C. (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. NeurIPS 2022.
-
-3. Dao, T. (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691.
-
-4. Shah, J., Bikshandi, G., Zhang, Y., Thakkar, V., Ramani, P., & Dao, T. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608.
-
-5. NVIDIA. (2022). NVIDIA H100 Tensor Core GPU Architecture Whitepaper.
-
-6. DeepSeek-AI. (2024). DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model. arXiv:2405.04434.
-
-7. DeepSeek-AI. (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437.
-
-8. DeepSeek-AI. (2025). DeepGEMM: A Library for Clean and Efficient GEMMs. GitHub Repository.
-
-9. NVIDIA. (2024). CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub Repository.
-
-10. NVIDIA. (2023). CUDA C++ Programming Guide, Version 12.0.
-
-11. NVIDIA. (2023). Parallel Thread Execution ISA, Version 8.0.
-
-12. DeepSeek-AI. (2025). 3FS: A High-Performance Distributed File System for AI Workloads. GitHub Repository.
-
-13. DeepSeek-AI. (2025). smallpond: Lightweight Data Processing with 3FS and DuckDB. GitHub Repository.
-
-14. Terrace, J., & Freedman, M. J. (2009). Object Storage on CRAQ: High-Throughput Chain Replication for Read-Mostly Workloads. USENIX ATC.
-
-15. Apple Inc. (2023). FoundationDB: A Distributed Unbounded Ordered Key-Value Store. GitHub Repository.
-
-16. Raasveldt, M., & Mühleisen, H. (2019). DuckDB: An Embeddable Analytical Database. SIGMOD.
-
-17. Axboe, J. (2019). Efficient IO with io_uring. Linux Kernel Documentation.
-
-18. DeepSeek-AI. (2025). DeepEP: An Efficient Expert-Parallel Communication Library. GitHub Repository.
-
-19. NVIDIA. (2023). NVSHMEM: A Partitioned Global Address Space (PGAS) Library for NVIDIA GPUs. NVIDIA Documentation.
-
-20. Hwang, C., et al. (2023). Tutel: Adaptive Mixture-of-Experts at Scale. MLSys.
-
-21. He, J., et al. (2022). FastMoE: A Fast Mixture-of-Expert Training System. arXiv:2103.13262.
-
-22. Gale, T., et al. (2023). MegaBlocks: Efficient Sparse Training with Mixture-of-Experts. MLSys.
-
-23. Lepikhin, D., et al. (2021). GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding. ICLR.
-
-24. Fedus, W., Zoph, B., & Shazeer, N. (2022). Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity. JMLR.
-
-25. DeepSeek-AI. (2025). EPLB: Expert Parallelism Load Balancer. GitHub Repository.
-
-26. Zhou, Y., et al. (2022). Mixture-of-Experts with Expert Choice Routing. NeurIPS.
-
-27. Lewis, M., et al. (2021). BASE Layers: Simplifying Training of Large, Sparse Models. ICML.
-
-28. Graham, R. L. (1969). Bounds on Multiprocessing Timing Anomalies. SIAM Journal on Applied Mathematics.
-
-29. Milakov, M., & Gimelshein, N. (2018). Online Normalizer Calculation for Softmax. arXiv:1805.02867.
-
-30. Rabe, M. N., & Staats, C. (2021). Self-Attention Does Not Need O(n²) Memory. arXiv:2112.05682.
-
-31. NVIDIA. (2022). NVIDIA Hopper Architecture In-Depth. NVIDIA Technical Blog.
-
-32. Vaswani, A., et al. (2017). Attention is All You Need. NeurIPS 2017.
-
-33. DeepSeek-AI. (2025). FlashMLA: Efficient Multi-head Latent Attention Kernels. GitHub Repository.
-
-34. DeepSeek-AI. (2024). DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models. arXiv:2402.03300.
-
-35. DeepSeek-AI. (2025). DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning. arXiv:2501.12948.
-
-36. Unsloth AI. (2025). Long-context GRPO (R1 Reasoning). https://unsloth.ai/blog/grpo
-
-37. Unsloth AI. (2025). Memory Efficient RL Documentation. https://unsloth.ai/docs/get-started/reinforcement-learning-rl-guide/
-
-38. NVIDIA. (2025). Reinforcement Learning with NVIDIA NeMo-RL. https://developer.nvidia.com/blog/reinforcement-learning-with-nvidia-nemo-rl/
-
-39. ModelScope Community. (2025). ms-swift: Scalable lightWeight Infrastructure for Fine-Tuning. arXiv:2408.05517.
-
-40. ByteDance. (2025). DAPO: An Open-Source LLM Reinforcement Learning System at Scale. arXiv:2503.14476.
-
-41. Zhang, R., et al. (2025). R1-VL: Learning to Reason with Multimodal Large Language Models via StepGRPO. ICCV 2025.
-
-42. Schulman, J., et al. (2017). Proximal Policy Optimization Algorithms. arXiv:1707.06347.
-
-43. Cobbe, K., et al. (2021). Training Verifiers to Solve Math Word Problems. arXiv:2110.14168.
-
-44. 蚂蚁数据智能技术. (2025). DeepSeek 3FS 解读与源码分析系列. 阿里云开发者社区.
-
-45. Cheng, X., Yu, X., Shao, C., Li, J., Xiong, Y., et al. (2026). DSpark: Confidence-Scheduled Speculative Decoding with Semi-Autoregressive Generation. arXiv:2607.05147.
-
-46. Leviathan, Y., Kalman, M., & Matias, Y. (2023). Fast Inference from Transformers via Speculative Decoding. ICML 2023.
-
-47. Chen, C., Borgeaud, S., Irving, G., Lespiau, J.-B., Sifre, L., & Jumper, J. (2023). Accelerating Large Language Model Decoding with Speculative Sampling. arXiv:2302.01318.
-
-48. Chen, J., Liang, Y., & Liu, Z. (2026). DFlash: Block Diffusion for Flash Speculative Decoding. arXiv:2602.06036.
-
-49. Li, Y., Wei, F., Zhang, C., & Zhang, H. (2024). EAGLE-2: Faster Inference of Language Models with Dynamic Draft Trees. EMNLP 2024.
-
-50. Li, Y., et al. (2026). EAGLE-3: Scaling up Inference Acceleration of Large Language Models via Training-Time Test. NeurIPS 2026. arXiv:2503.01840.
-
-51. Gu, J., Bradbury, J., Xiong, C., Li, V. O., & Socher, R. (2018). Non-Autoregressive Neural Machine Translation. ICLR 2018.
-
-52. Guo, C., Pleiss, G., Sun, Y., & Weinberger, K. Q. (2017). On Calibration of Modern Neural Networks. ICML 2017.
-
-53. Dai, D., et al. (2024). DeepSeekMoE: Towards Ultimate Expert Specialization in Mixture-of-Experts Language Models. ACL 2024.
-
-54. DeepSeek-AI. (2026). DeepSeek-V4: Towards Highly Efficient Million-Token Context Intelligence. arXiv:2606.19348.
-
-55. DeepSeek-AI. (2026). DeepSpec: Speculative Decoding Training and Evaluation Codebase. GitHub Repository. https://github.com/deepseek-ai/DeepSpec
-
-56. DeepSeek-AI. (2026). DSpark / DFlash / EAGLE3 草稿模型检查点. https://huggingface.co/deepseek-ai
+[^deepgemm]: DeepSeek-AI 于 2025 年开源的 GEMM 计算库 DeepGEMM，https://github.com/deepseek-ai/DeepGEMM。
+[^fs3]: DeepSeek-AI 于 2025 年开源的分布式文件系统 3FS，https://github.com/deepseek-ai/3FS。
+[^cutlass]: NVIDIA 开源的 CUDA 线性代数模板库 CUTLASS，https://github.com/NVIDIA/cutlass。
+[^fp8]: Micikevicius P. 等人于 2022 年发布的论文 FP8 Formats for Deep Learning，https://arxiv.org/abs/2209.05433。
+[^hopper]: NVIDIA 于 2022 年发布的 NVIDIA H100 Tensor Core GPU Architecture 白皮书。
+[^craq]: Terrace J. 与 Freedman M. J. 于 2009 年发表于 USENIX ATC 的论文 Object Storage on CRAQ: High-Throughput Chain Replication for Read-Mostly Workloads。
+[^fdb]: Apple 开源的分布式键值存储 FoundationDB，https://github.com/apple/foundationdb。
+[^deepep]: DeepSeek-AI 于 2025 年开源的专家并行通信库 DeepEP，https://github.com/deepseek-ai/DeepEP。
+[^eplb]: DeepSeek-AI 于 2025 年开源的专家并行负载均衡器 EPLB，https://github.com/deepseek-ai/EPLB。
+[^nvshmem]: NVIDIA 的 GPU 分区全局地址空间通信库 NVSHMEM，https://developer.nvidia.com/nvshmem。
+[^fa1]: Dao T. 等人于 2022 年发表于 NeurIPS 的论文 FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness，https://arxiv.org/abs/2205.14135；其后续版本 FlashAttention-2（2023，https://arxiv.org/abs/2307.08691）进一步优化了并行与工作划分。
+[^onlinesoftmax]: Milakov M. 与 Gimelshein N. 于 2018 年发布的论文 Online Normalizer Calculation for Softmax，https://arxiv.org/abs/1805.02867。
+[^fa3]: Shah J. 等人于 2024 年发布的论文 FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision，https://arxiv.org/abs/2407.08608。
+[^flashmla]: DeepSeek-AI 于 2025 年开源的 MLA 高性能注意力内核库 FlashMLA，https://github.com/deepseek-ai/FlashMLA。
+[^dsmath]: Shao Z. 等人（DeepSeek-AI）于 2024 年 2 月发布的论文 DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models，https://arxiv.org/abs/2402.03300。
+[^r1]: DeepSeek-AI 于 2025 年 1 月发布的论文 DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning，https://arxiv.org/abs/2501.12948。
+[^ppo]: Schulman J. 等人（OpenAI）于 2017 年发布的论文 Proximal Policy Optimization Algorithms，https://arxiv.org/abs/1707.06347。
+[^unsloth]: Unsloth AI 的开源微调框架及其强化学习文档，https://unsloth.ai/docs。
+[^nemorl]: NVIDIA 的开源强化学习框架 NeMo-RL，https://github.com/NVIDIA-NeMo/RL。
+[^swift]: 阿里巴巴魔搭社区于 2024 年发布、被 AAAI 2025 接收的论文 ms-swift: Scalable lightWeight Infrastructure for Fine-Tuning，https://arxiv.org/abs/2408.05517。
+[^dapo]: 字节跳动于 2025 年发布的论文 DAPO: An Open-Source LLM Reinforcement Learning System at Scale，https://arxiv.org/abs/2503.14476。
+[^r1vl]: Zhang R. 等人于 2025 年发表于 ICCV 的论文 R1-VL: Learning to Reason with Multimodal Large Language Models via Step-wise Group Relative Policy Optimization。
+[^dspark]: Cheng X. 等人（DeepSeek-AI 与北京大学）于 2026 年发布的论文 DSpark: Confidence-Scheduled Speculative Decoding with Semi-Autoregressive Generation，https://arxiv.org/abs/2607.05147。
+[^specdec]: 投机解码的两篇奠基论文：Leviathan Y. 等人（Google）于 2023 年发表于 ICML 的 Fast Inference from Transformers via Speculative Decoding（https://arxiv.org/abs/2211.17192）；Chen C. 等人（DeepMind）于 2023 年发布的 Accelerating Large Language Model Decoding with Speculative Sampling（https://arxiv.org/abs/2302.01318）。
+[^eagle]: Li Y. 等人的自回归草稿器系列论文：EAGLE-2（EMNLP 2024）与 EAGLE-3（NeurIPS 2026，https://arxiv.org/abs/2503.01840）。
+[^dflash]: Chen J. 等人于 2026 年发布的论文 DFlash: Block Diffusion for Flash Speculative Decoding，https://arxiv.org/abs/2602.06036。
+[^gu2018]: Gu J. 等人于 2018 年发表于 ICLR 的论文 Non-Autoregressive Neural Machine Translation，https://arxiv.org/abs/1711.02281。
+[^guo2017]: Guo C. 等人于 2017 年发表于 ICML 的论文 On Calibration of Modern Neural Networks，https://arxiv.org/abs/1706.04599。
+[^dsmoe]: Dai D. 等人（DeepSeek-AI）于 2024 年 1 月发布的论文 DeepSeekMoE: Towards Ultimate Expert Specialization in Mixture-of-Experts Language Models，https://arxiv.org/abs/2401.06066。
+[^dsv3]: DeepSeek-AI 于 2024 年 12 月发布的 DeepSeek-V3 Technical Report（MTP 生产基线出处），https://arxiv.org/abs/2412.19437。
+[^deepspec]: DeepSeek-AI 于 2026 年开源的投机解码训练与评测代码库 DeepSpec，https://github.com/deepseek-ai/DeepSpec；配套的 12 个草稿模型检查点发布于 https://huggingface.co/deepseek-ai。
+[^ant3fs]: 3FS 的源码解读可参考蚂蚁数据智能技术团队 2025 年发布于阿里云开发者社区的《DeepSeek 3FS 解读与源码分析》系列文章。
