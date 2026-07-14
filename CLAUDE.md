@@ -126,9 +126,22 @@ pandoc 审阅稿.docx -t markdown --track-changes=all -o review.md
 
 ## 五、环境注意事项（本机 gaozhi-lagos）
 
-- 代理拦截 22 端口，GitHub SSH 已配置走 443 端口（`~/.ssh/config`），`git push` 可直接用。
+- **本机环境会被重置**（2026-07-14 发现 pandoc、`~/.ssh/config`、git 身份均丢失），以下配置丢了就照此重建。
+- 本机出网走代理 `http://localhost:7890`（env 已设 http_proxy/https_proxy）。SSH 直连 22/443 均不通，`~/.ssh/config` 需配置 GitHub 走 443 端口并经代理隧道：
+
+  ```
+  Host github.com
+      HostName ssh.github.com
+      Port 443
+      User git
+      IdentityFile ~/.ssh/id_rsa
+      ProxyCommand nc -X connect -x localhost:7890 %h %p
+  ```
+
+- 远程地址用 SSH：`git@github.com:gaozhi-ustc/deepseek-book.git`（HTTPS 无凭据，push 不了）。
 - 没有 `gh` CLI；GitHub 操作走 git 命令。
-- git 身份是**仓库级**配置（gaozhi <qinglin890@gmail.com>），新克隆需重新配置。
+- git 身份是**仓库级**配置，丢失后重设：`git config user.name gaozhi && git config user.email qinglin890@gmail.com`。
+- pandoc 不在系统包里，静态二进制装在 `~/.local/bin/pandoc`（3.6.3），丢失后从 GitHub releases 重新下载。
 
 ## 六、遗留事项
 
