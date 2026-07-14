@@ -59,8 +59,8 @@ def count_docx_math(docx_path: str) -> tuple[int, int]:
     return n_para, n_math
 
 
-def convert(pandoc: str, md_path: str) -> bool:
-    docx_path = os.path.splitext(md_path)[0] + ".docx"
+def convert(pandoc: str, md_path: str, out_path: str | None = None) -> bool:
+    docx_path = out_path or (os.path.splitext(md_path)[0] + ".docx")
     src_dir = os.path.dirname(os.path.abspath(md_path)) or "."
     cmd = [
         pandoc, md_path,
@@ -69,6 +69,14 @@ def convert(pandoc: str, md_path: str) -> bool:
         "--resource-path", src_dir,     # 图片相对路径（pic/ 等）
         "-o", docx_path,
     ]
+    # 版式模板（正文首行缩进 2 字符、西文 Times New Roman 5号、代码 Courier New 小五）。
+    # 模板不入库（*.docx 被 gitignore），缺失时先运行 make_reference_docx.py 生成。
+    ref = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reference_book.docx")
+    if os.path.isfile(ref):
+        cmd += ["--reference-doc", ref]
+    else:
+        print("[提示] 未找到 reference_book.docx，输出将使用 pandoc 默认版式；"
+              "可运行 python3 make_reference_docx.py 生成模板。", file=sys.stderr)
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         print(f"[失败] {md_path}\n{r.stderr}", file=sys.stderr)
@@ -93,14 +101,22 @@ def convert(pandoc: str, md_path: str) -> bool:
 
 def main() -> None:
     pandoc = find_pandoc()
-    files = sys.argv[1:] or ["chapter2_new.md", "chapter3_new.md"]
+    args = sys.argv[1:]
+    out_path = None
+    if "-o" in args:                    # md2docx.py 文件.md -o 输出.docx
+        i = args.index("-o")
+        out_path = args[i + 1]
+        args = args[:i] + args[i + 2:]
+    files = args or ["chapter2_new.md", "chapter3_new.md"]
+    if out_path and len(files) != 1:
+        sys.exit("错误：-o 仅支持单个输入文件。")
     all_ok = True
     for f in files:
         if not os.path.isfile(f):
             print(f"[跳过] 文件不存在：{f}", file=sys.stderr)
             all_ok = False
             continue
-        all_ok = convert(pandoc, f) and all_ok
+        all_ok = convert(pandoc, f, out_path) and all_ok
     sys.exit(0 if all_ok else 1)
 
 
