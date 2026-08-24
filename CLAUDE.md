@@ -185,6 +185,7 @@ pandoc 审阅稿.docx -t markdown --track-changes=all -o review.md
   ```
 
 - 远程地址用 SSH：`git@github.com:gaozhi-ustc/deepseek-book.git`（HTTPS 无凭据，push 不了）。
+- **重置后 `~/.ssh/id_rsa` 密钥对也可能被重新生成**（2026-08-23 发现，push 报 `Permission denied (publickey)`）：需把新的 `~/.ssh/id_rsa.pub` 重新添加到 GitHub 账号（Settings → SSH and GPG keys，只有仓库主人能做）。known_hosts 丢失报 `Host key verification failed` 时，从 `https://api.github.com/meta` 的 `ssh_keys` 字段取官方主机密钥，按 `[ssh.github.com]:443 <key>` 格式追加进 `~/.ssh/known_hosts`（ssh-keyscan 不走代理，用不了）。
 - 没有 `gh` CLI；GitHub 操作走 git 命令。
 - git 身份是**仓库级**配置，丢失后重设：`git config user.name gaozhi && git config user.email qinglin890@gmail.com`。
 - pandoc 不在系统包里，静态二进制装在 `~/.local/bin/pandoc`（3.6.3），丢失后从 GitHub releases 重新下载。
