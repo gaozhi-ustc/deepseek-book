@@ -64,7 +64,10 @@ def convert(pandoc: str, md_path: str, out_path: str | None = None) -> bool:
     src_dir = os.path.dirname(os.path.abspath(md_path)) or "."
     cmd = [
         pandoc, md_path,
-        "-f", "gfm+tex_math_dollars",   # 关键：识别 $...$ / $$...$$ 中的 LaTeX 公式
+        # gfm+tex_math_dollars：识别 $...$ / $$...$$ 中的 LaTeX 公式；
+        # -autolink_bare_uris：关闭裸 URL/邮箱自动成链——中文紧邻 "pass@1" 这类
+        # 文本会被误识别为邮箱生成悬空超链接；脚注里的 URL 以纯文本呈现即可。
+        "-f", "gfm+tex_math_dollars-autolink_bare_uris",
         "-t", "docx",                   # docx 写入器把公式输出为 Word 原生 OMML
         "--resource-path", src_dir,     # 图片相对路径（pic/ 等）
         "-o", docx_path,

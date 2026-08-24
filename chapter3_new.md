@@ -85,7 +85,7 @@ $$\mathbfit{C}^{(l)}_{ij} = \text{FP32}\left(\sum_{k=1}^{K_{\mathrm{tile}}} \tex
 
 $$\mathbfit{C}_{ij} = \sum_{l=1}^{\lceil K/K_{\mathrm{tile}} \rceil} \mathbfit{C}^{(l)}_{ij} $$
 
-其中 $\mathbfit{C}^{(l)}_{ij}$ 为第 $l$ 个 tile 的中间累加结果，$l$ 为 tile 索引。第一级累加在 Tensor Core 内部以 FP32 精度完成单个 tile 的计算，第二级累加在 CUDA 核心中将多个 tile 的结果汇总。DeepGEMM 默认设置累加间隔 $L_1 = 128$，即每累加 128 个 K 维元素后执行一次二级累加。
+其中 $\mathbfit{C}^{(l)}_{ij}$ 为第 $l$ 个 tile 的中间累加结果，$l$ 为 tile 索引。第一级累加在 Tensor Core 内部以 FP32 精度完成单个 tile 的计算，第二级累加在 CUDA 核心中将多个 tile 的结果汇总。DeepGEMM 默认设置累加间隔 $L_1 = 128$，即每累加 128 个 K 维元素后执行一次二级累加。（上述两级求和式为便于理解建立的近似模型，非 DeepGEMM 仓库给出的正式算法公式。）
 
 **(4) 混合精度训练流程**
 
@@ -473,7 +473,7 @@ Chunk 位置路由：
 
 $$\text{chain\_id} = f(\text{chunk\_index}, \text{shuffle\_seed}, \text{chain\_table}) $$
 
-其中 `chain_table` 为该文件可用的存储链列表（每个链是一组维护数据副本的存储节点），`shuffle_seed` 为用于数据分布的伪随机种子，$f$ 为基于种子的确定性映射函数。该策略实现了数据的均匀分布与并行访问，同时避免了在元数据中维护大量 chunk 位置信息的开销。
+其中 `chain_table` 为该文件可用的存储链列表（每个链是一组维护数据副本的存储节点），`shuffle_seed` 为用于数据分布的伪随机种子，$f$ 为基于种子的确定性映射函数。该策略实现了数据的均匀分布与并行访问，同时避免了在元数据中维护大量 chunk 位置信息的开销。（chunk_id 拼接等具体形式为示意性描述。）
 
 **(4) CRAQ 链式复制协议**
 
@@ -747,7 +747,7 @@ lor（Large Object of Rings）：
 
 $$T_{\mathrm{lease}} = T_{\mathrm{base}} + \alpha \cdot T_{\mathrm{activity}} $$
 
-其中 $T_{\mathrm{base}}$ 为基础租约时长，$T_{\mathrm{activity}}$ 为近期访问活跃度，$\alpha$ 为调节系数。
+其中 $T_{\mathrm{base}}$ 为基础租约时长，$T_{\mathrm{activity}}$ 为近期访问活跃度，$\alpha$ 为调节系数。（该式为示意性模型，非 3FS 官方公式。）
 
 **6. 3FS 元数据管理**
 
@@ -859,7 +859,7 @@ $$V_{\mathrm{dispatch}} = B \cdot S \cdot K \cdot d_{\mathrm{model}} \cdot \text
 
 $$V_{\mathrm{dispatch}} = B \cdot S \cdot 8 \cdot 7168 \cdot 2 = 114688 \cdot B \cdot S \text{ bytes} $$
 
-Combine 阶段通信量与 Dispatch 相同，因此单次 MoE 层前向传播的总通信量为 $V_{\mathrm{total}} = 2 \cdot V_{\mathrm{dispatch}}$。对于包含 $L$ 层 MoE 的模型，前向传播共需 $2L$ 次 All-to-All 通信。
+Combine 阶段通信量与 Dispatch 相同，因此单次 MoE 层前向传播的总通信量为 $V_{\mathrm{total}} = 2 \cdot V_{\mathrm{dispatch}}$。对于包含 $L$ 层 MoE 的模型，前向传播共需 $2L$ 次 All-to-All 通信。（以上通信量式为工程估算模型，非 DeepEP 仓库原式。）
 
 **(3) All-to-All 通信语义**
 
@@ -997,7 +997,7 @@ $$P_{\mathrm{depth}} = \min\left(\frac{B_{\mathrm{total}}}{B_{\mathrm{chunk}}}, 
 
 $$T_{\mathrm{decode}} = T_{\mathrm{attention}} + L_{\mathrm{moe}} \cdot (T_{\mathrm{dispatch}} + T_{\mathrm{expert}} + T_{\mathrm{combine}}) $$
 
-其中 $T_{\mathrm{decode}}$ 为解码总延迟，$T_{\mathrm{attention}}$ 为注意力计算延迟，$L_{\mathrm{moe}}$ 为 MoE 层数，$T_{\mathrm{dispatch}}$ 为 token 分发延迟，$T_{\mathrm{expert}}$ 为专家计算延迟，$T_{\mathrm{combine}}$ 为结果聚合延迟。传统方法需在每次 decode 时重新配置内核参数，无法使用 CUDA Graph 加速，CPU-GPU 同步开销显著。
+其中 $T_{\mathrm{decode}}$ 为解码总延迟，$T_{\mathrm{attention}}$ 为注意力计算延迟，$L_{\mathrm{moe}}$ 为 MoE 层数，$T_{\mathrm{dispatch}}$ 为 token 分发延迟，$T_{\mathrm{expert}}$ 为专家计算延迟，$T_{\mathrm{combine}}$ 为结果聚合延迟。（该延迟模型为工程估算。）传统方法需在每次 decode 时重新配置内核参数，无法使用 CUDA Graph 加速，CPU-GPU 同步开销显著。
 
 **(2) 掩码布局（Masked Layout）优化**
 
@@ -1269,7 +1269,7 @@ KV-Cache 的显存占用：
 
 $$M_{\mathrm{kv}} = 2 \cdot L \cdot N \cdot H \cdot d_{\mathrm{h}} \cdot \text{sizeof(dtype)} $$
 
-其中 $M_{\mathrm{kv}}$ 为 KV-Cache 显存占用，$L$ 为 Transformer 层数，$N$ 为序列长度，$H$ 为注意力头数，$d_{\mathrm{h}}$ 为每个头的维度。
+其中 $M_{\mathrm{kv}}$ 为 KV-Cache 显存占用，$L$ 为 Transformer 层数，$N$ 为序列长度，$H$ 为 KV 头数（GQA 时小于查询头数），$d_{\mathrm{h}}$ 为每个头的维度。
 
 KV-Cache 的显存占用随序列长度线性增长，对于长上下文场景可能超出单卡显存容量，这也是 MLA 等压缩技术的动因。典型模型的 KV-Cache 显存占用（FP16）如表 3-26 所示。
 
@@ -1304,7 +1304,7 @@ $$\mathbfit{Q} = \begin{bmatrix} \mathbfit{Q}_1 \\ \mathbfit{Q}_2 \\ \vdots \\ \
 
 块大小的选择取决于 SRAM 容量：
 
-$$B_{\mathrm{r}} \cdot d + B_{\mathrm{c}} \cdot d + B_{\mathrm{r}} \cdot B_{\mathrm{c}} \leq M_{\mathrm{SRAM}} $$
+$$B_{\mathrm{c}} = \left\lceil \frac{M_{\mathrm{SRAM}}}{4d} \right\rceil, \quad B_{\mathrm{r}} = \min\left( \left\lceil \frac{M_{\mathrm{SRAM}}}{4d} \right\rceil, d \right) $$
 
 其中 $M_{\mathrm{SRAM}}$ 为每个 SM 的共享内存容量。对于 A100（每个 SM 有 192 KB SRAM），典型配置为 $B_{\mathrm{r}} = B_{\mathrm{c}} = 128$（当 $d = 128$ 时）。
 
@@ -1312,23 +1312,23 @@ $$B_{\mathrm{r}} \cdot d + B_{\mathrm{c}} \cdot d + B_{\mathrm{r}} \cdot B_{\mat
 
 分块计算的核心挑战在于 Softmax 的归一化需要全局信息。标准 Softmax 计算：
 
-$$\text{softmax}(\mathbfit{x})_i = \frac{e^{x_i}}{\sum_{j=1}^{N} e^{x_j}} $$
+$$\text{softmax}(\mathbfit{x})_i = \frac{\mathrm{e}^{x_i}}{\sum_{j=1}^{N} \mathrm{e}^{x_j}} $$
 
-其中下标 $i$ 表示输出向量的第 $i$ 个元素，$x_i$ 和 $x_j$ 分别为输入向量 $\mathbfit{x}$ 的第 $i$ 和第 $j$ 个分量。该计算需要两次遍历：第一次计算 $\max(\mathbfit{x})$ 和 $\sum e^{x_i}$，第二次执行归一化。FlashAttention 采用 在线 Softmax 算法（Milakov & Gimelshein, 2018）实现单次遍历。
+其中下标 $i$ 表示输出向量的第 $i$ 个元素，$x_i$ 和 $x_j$ 分别为输入向量 $\mathbfit{x}$ 的第 $i$ 和第 $j$ 个分量。该计算需要两次遍历：第一次计算 $\max(\mathbfit{x})$ 和 $\sum \mathrm{e}^{x_i}$，第二次执行归一化。FlashAttention 采用 在线 Softmax 算法（Milakov & Gimelshein, 2018）实现单次遍历。
 
 定义第 $i$ 块处理完成后的统计量：
 
-$$m^{(i)} = \max_{j \leq i} \max(\mathbfit{x}_j), \quad \ell^{(i)} = \sum_{j \leq i} e^{\mathbfit{x}_j - m^{(i)}} $$
+$$m^{(i)} = \max_{j \leq i} \max(\mathbfit{x}_j), \quad l^{(i)} = \sum_{j \leq i} \mathrm{e}^{\mathbfit{x}_j - m^{(i)}} $$
 
-其中 $m^{(i)}$ 为前 $i$ 个块的全局最大值，$\ell^{(i)}$ 为归一化因子（exp 求和），$\mathbfit{x}_j$ 为第 $j$ 个块的注意力分数。当处理第 $i+1$ 块时，更新规则为：
+其中 $m^{(i)}$ 为前 $i$ 个块的全局最大值，$l^{(i)}$ 为归一化因子（exp 求和），$\mathbfit{x}_j$ 为第 $j$ 个块的注意力分数。当处理第 $i+1$ 块时，更新规则为：
 
 $$m^{(i+1)} = \max(m^{(i)}, m^{(i+1)}_{\mathrm{local}}) $$
 
-$$\ell^{(i+1)} = e^{m^{(i)} - m^{(i+1)}} \ell^{(i)} + e^{m^{(i+1)}_{\mathrm{local}} - m^{(i+1)}} \ell^{(i+1)}_{\mathrm{local}} $$
+$$l^{(i+1)} = \mathrm{e}^{m^{(i)} - m^{(i+1)}} l^{(i)} + \mathrm{e}^{m^{(i+1)}_{\mathrm{local}} - m^{(i+1)}} l^{(i+1)}_{\mathrm{local}} $$
 
-其中 $m^{(i+1)}_{\mathrm{local}}$ 和 $\ell^{(i+1)}_{\mathrm{local}}$ 分别为第 $i+1$ 块的局部最大值和局部归一化因子。这使得输出可以 增量更新：
+其中 $m^{(i+1)}_{\mathrm{local}}$ 和 $l^{(i+1)}_{\mathrm{local}}$ 分别为第 $i+1$ 块的局部最大值和局部归一化因子。这使得输出可以 增量更新：
 
-$$\mathbfit{O}^{(i+1)} = \frac{e^{m^{(i)} - m^{(i+1)}} \ell^{(i)} \mathbfit{O}^{(i)} + e^{m^{(i+1)}_{\mathrm{local}} - m^{(i+1)}} \mathbfit{P}_{i+1} \mathbfit{V}_{i+1}}{\ell^{(i+1)}} $$
+$$\mathbfit{O}^{(i+1)} = \frac{\mathrm{e}^{m^{(i)} - m^{(i+1)}} l^{(i)} \mathbfit{O}^{(i)} + \mathrm{e}^{m^{(i+1)}_{\mathrm{local}} - m^{(i+1)}} \mathbfit{P}_{i+1} \mathbfit{V}_{i+1}}{l^{(i+1)}} $$
 
 其中 $\mathbfit{O}^{(i)}$ 为前 $i$ 个块的累积输出，$\mathbfit{P}_{i+1}$ 为第 $i+1$ 块的注意力权重矩阵，$\mathbfit{V}_{i+1}$ 为第 $i+1$ 块的值矩阵。
 
@@ -1352,9 +1352,9 @@ $$\Theta(N^2 d^2 M^{-1}) $$
 
 **(5) 反向传播算法**
 
-FlashAttention 的反向传播同样采用分块计算。关键技术是 重计算（Recomputation）：不存储前向传播中的 $\mathbfit{S}$ 和 $\mathbfit{P}$ 矩阵（需 $O(N^2)$ 内存），而在反向传播时从保存的 $\mathbfit{Q}, \mathbfit{K}, \mathbfit{V}$ 和统计量 $\ell, m$ 重新计算。
+FlashAttention 的反向传播同样采用分块计算。关键技术是 重计算（Recomputation）：不存储前向传播中的 $\mathbfit{S}$ 和 $\mathbfit{P}$ 矩阵（需 $O(N^2)$ 内存），而在反向传播时从保存的 $\mathbfit{Q}, \mathbfit{K}, \mathbfit{V}$ 和统计量 $l, m$ 重新计算。
 
-反向传播的梯度链（其中 $\mathcal{L}$ 为损失函数，$\odot$ 为逐元素乘法，$\frac{\partial \mathcal{L}}{\partial \mathbfit{V}}$ 表示损失函数对矩阵 $\mathbfit{V}$ 的偏导数）：
+反向传播的梯度链（其中 $\mathcal{L}$ 为损失函数，$\odot$ 为逐元素乘法，$\frac{\partial \mathcal{L}}{\partial \mathbfit{V}}$ 表示损失函数对矩阵 $\mathbfit{V}$ 的偏导数，$\tau = 1/\sqrt{d_{\mathrm{k}}}$ 为注意力缩放因子——$\mathbfit{S} = \mathbfit{Q}\mathbfit{K}^T/\sqrt{d_{\mathrm{k}}}$ 已含缩放，对 $\mathbfit{Q}$、$\mathbfit{K}$ 的梯度需回乘 $\tau$）：
 
 $$\frac{\partial \mathcal{L}}{\partial \mathbfit{V}} = \mathbfit{P}^T \frac{\partial \mathcal{L}}{\partial \mathbfit{O}} $$
 
@@ -1364,7 +1364,7 @@ $$\frac{\partial \mathcal{L}}{\partial \mathbfit{S}} = \mathbfit{P} \odot \left(
 
 其中 $D$ 为按行求和的归一化项。
 
-$$\frac{\partial \mathcal{L}}{\partial \mathbfit{Q}} = \frac{\partial \mathcal{L}}{\partial \mathbfit{S}} \mathbfit{K}, \quad \frac{\partial \mathcal{L}}{\partial \mathbfit{K}} = \left(\frac{\partial \mathcal{L}}{\partial \mathbfit{S}}\right)^T \mathbfit{Q} $$
+$$\frac{\partial \mathcal{L}}{\partial \mathbfit{Q}} = \tau \frac{\partial \mathcal{L}}{\partial \mathbfit{S}} \mathbfit{K}, \quad \frac{\partial \mathcal{L}}{\partial \mathbfit{K}} = \tau \left(\frac{\partial \mathcal{L}}{\partial \mathbfit{S}}\right)^T \mathbfit{Q} $$
 
 FlashAttention 在反向传播时分块重计算 $\mathbfit{P}$，然后使用上述公式计算梯度。理论分析表明，重计算的额外计算成本被 IO 优化节省的时间抵消，实际运行速度不降反升。
 
@@ -1543,6 +1543,8 @@ $$\text{Bytes} \approx 2 \times s_{\mathrm{k}} \times d_{\mathrm{k}} $$
 
 $$\frac{\text{FLOPs}}{\text{Bytes}} = h_{\mathrm{q}} \times s_{\mathrm{q}} \times \frac{d_{\mathrm{k}} + d_{\mathrm{v}}}{d_{\mathrm{k}}} \approx 2 \times h_{\mathrm{q}} \times s_{\mathrm{q}} $$
 
+（以上 FLOPs 与内存访问量估算式为本书推导。）
+
 对于 NVIDIA H800 SXM5 GPU（峰值带宽 3.35 TB/s，峰值算力 990 TFLOPS，降频后约 865 TFLOPS），当 $h_{\mathrm{q}} \times s_{\mathrm{q}} \geq 128$ 时，内核为计算密集型。DeepSeek 推理系统未采用张量并行（Tensor Parallelism），$h_{\mathrm{q}} = 128$，因此 MLA 解码内核是 计算密集型。
 
 这与传统解码注意力（通常为内存密集型）形成鲜明对比，需要全新的优化策略。
@@ -1593,7 +1595,7 @@ GPU 内存由多级层次结构组成，不同层级在容量、带宽和延迟�
 
 FlashMLA 的分层缓存策略：
 
-- 寄存器（L1）：存储累积输出矩阵 $\mathbfit{O}$、运行统计量 $m$（最大值）和 $\ell$（exp 求和）；
+- 寄存器（L1）：存储累积输出矩阵 $\mathbfit{O}$、运行统计量 $m$（最大值）和 $l$（exp 求和）；
 - 共享内存（L2）：缓存 Query 块、K/V 块、注意力分数矩阵 $\mathbfit{S}$；
 - L2 Cache（L3）：通过 Cache Hint 提高 KV 缓存的 L2 命中率；
 - HBM（L4）：存储完整的 KV 缓存和输出。
@@ -1617,7 +1619,7 @@ $$\text{scale}_i = 2^{\lceil \log_2(\max(|\mathbfit{x}_i|) / 448) \rceil} $$
 
 $$\text{quantized}_i = \text{round}(\mathbfit{x}_i / \text{scale}_i) $$
 
-其中 $\mathbfit{x}_i$ 为第 $i$ 个分块的原始数据，$\text{scale}_i$ 为该分块的缩放因子，$\text{quantized}_i$ 为量化后的整数值。RoPE 部分（最后 64 维）不进行量化，以保持位置编码精度。
+其中 $\mathbfit{x}_i$ 为第 $i$ 个分块的原始数据，$\text{scale}_i$ 为该分块的缩放因子，$\text{quantized}_i$ 为量化后的整数值。（2 的幂缩放对应 UE8M0 等硬件实践；FP8 规范本身允许任意实数缩放因子。）RoPE 部分（最后 64 维）不进行量化，以保持位置编码精度。
 
 **4. 混合精度矩阵乘法**
 
@@ -1680,7 +1682,7 @@ Seesaw 解决方案：
 
 Combine 内核将各 split 的结果合并：
 
-$$\mathbfit{O} = \frac{\sum_{i} e^{\text{lse}_i - \text{lse}_{\mathrm{max}}} \mathbfit{O}_i}{\sum_{i} e^{\text{lse}_i - \text{lse}_{\mathrm{max}}}} $$
+$$\mathbfit{O} = \frac{\sum_{i} \mathrm{e}^{\text{lse}_i - \text{lse}_{\mathrm{max}}} \mathbfit{O}_i}{\sum_{i} \mathrm{e}^{\text{lse}_i - \text{lse}_{\mathrm{max}}}} $$
 
 其中 $\mathbfit{O}_i$ 为第 $i$ 个 split 的局部输出，$\text{lse}_i$ 为第 $i$ 个 split 的 log-sum-exp 值，$\text{lse}_{\mathrm{max}}$ 为所有 split 中 lse 的最大值。
 
@@ -1769,19 +1771,19 @@ FlashMLA 在 MLA 架构上实现了最优性能，特别是在 DeepSeek 模型�
 
 传统的 PPO[^ppo]（Proximal Policy Optimization）算法需要同时训练策略模型（Policy Model）和价值模型（Value Model/Critic），其优化目标为：
 
-$$\mathcal{J}_{\mathrm{PPO}}(\theta) = \mathbb{E}_{(x,y) \sim \pi_\theta} \left[ \min\left( r(\theta) A^{\pi_{\theta_{\mathrm{old}}}}(x,y), \text{clip}(r(\theta), 1-\epsilon, 1+\epsilon) A^{\pi_{\theta_{\mathrm{old}}}}(x,y) \right) \right] $$
+$$J_{\mathrm{PPO}}(\theta) = \mathbb{E}_{(x,y) \sim \pi_{\theta_{\mathrm{old}}}} \left[ \min\left( r(\theta) A^{\pi_{\theta_{\mathrm{old}}}}(x,y), \text{clip}(r(\theta), 1-\epsilon, 1+\epsilon) A^{\pi_{\theta_{\mathrm{old}}}}(x,y) \right) \right] $$
 
 其中 $\theta$ 为策略模型参数，$\pi_\theta$ 为策略分布，$x$ 为输入提示，$y$ 为生成的响应，$\epsilon$ 为裁剪参数（通常取 0.2），$r(\theta) = \frac{\pi_\theta(y|x)}{\pi_{\theta_{\mathrm{old}}}(y|x)}$ 为重要性采样比率，$A^{\pi_{\theta_{\mathrm{old}}}}(x,y)$ 为优势函数（上标 $\pi_{\theta_{\mathrm{old}}}$ 表示该优势值在旧策略下计算），通过价值模型估计。这需要额外训练一个与策略模型规模相当的价值模型，导致显存占用翻倍、训练不稳定、计算资源消耗大等问题。
 
 GRPO 的核心改进：完全消除价值模型，使用组内相对奖励估计优势函数。设对于每个提示 $x$，采样 $G$ 个响应 $\{y_1, ..., y_G\}$，GRPO 的优化目标为：
 
-$$\mathcal{J}_{\mathrm{GRPO}}(\theta) = \mathbb{E}_{x \sim \mathcal{D}, \{y_i\}_{i=1}^G \sim \pi_\theta(\cdot|x)} \left[ \sum_{i=1}^G \min\left( r_i(\theta) \hat{A}_i, \text{clip}(r_i(\theta), 1-\epsilon, 1+\epsilon) \hat{A}_i \right) \right] $$
+$$J_{\mathrm{GRPO}}(\theta) = \mathbb{E}_{x \sim \mathcal{D}, \{y_i\}_{i=1}^G \sim \pi_{\theta_{\mathrm{old}}}(\cdot|x)} \left[ \frac{1}{G} \sum_{i=1}^G \left\{ \min\left( r_i(\theta) \hat{A}_i, \text{clip}(r_i(\theta), 1-\epsilon, 1+\epsilon) \hat{A}_i \right) - \beta D_{\mathrm{KL}}(\pi_\theta \parallel \pi_{\mathrm{ref}}) \right\} \right] $$
 
-其中 $\mathbb{E}_{x \sim \mathcal{D}, \{y_i\}_{i=1}^G \sim \pi_\theta(\cdot|x)}$ 表示期望运算，下标含义为：$x$ 从数据分布 $\mathcal{D}$ 中采样，$G$ 个响应 $\{y_1, ..., y_G\}$ 从策略 $\pi_\theta$ 中采样。$\mathcal{D}$ 为训练数据分布，$r_i(\theta) = \pi_\theta(y_i|x) / \pi_{\theta_{\mathrm{old}}}(y_i|x)$ 为第 $i$ 个响应的重要性采样比率。组相对优势函数为：
+其中 $\mathbb{E}_{x \sim \mathcal{D}, \{y_i\}_{i=1}^G \sim \pi_{\theta_{\mathrm{old}}}(\cdot|x)}$ 表示期望运算，下标含义为：$x$ 从数据分布 $\mathcal{D}$ 中采样，$G$ 个响应 $\{y_1, ..., y_G\}$ 从旧策略 $\pi_{\theta_{\mathrm{old}}}$ 中采样。$\mathcal{D}$ 为训练数据分布，$r_i(\theta) = \pi_\theta(y_i|x) / \pi_{\theta_{\mathrm{old}}}(y_i|x)$ 为第 $i$ 个响应的重要性采样比率，$\beta$ 为 KL 正则系数，$\pi_{\mathrm{ref}}$ 为参考策略。组相对优势函数为：
 
-$$\hat{A}_i = \frac{r(x, y_i) - \mu_G}{\sigma_G + \epsilon}, \quad \mu_G = \frac{1}{G}\sum_{i=1}^G r(x, y_i), \quad \sigma_G = \sqrt{\frac{1}{G}\sum_{i=1}^G (r(x, y_i) - \mu_G)^2} $$
+$$\hat{A}_i = \frac{R(x, y_i) - \mu_G}{\sigma_G + \epsilon}, \quad \mu_G = \frac{1}{G}\sum_{i=1}^G R(x, y_i), \quad \sigma_G = \sqrt{\frac{1}{G}\sum_{i=1}^G (R(x, y_i) - \mu_G)^2} $$
 
-其中 $\hat{A}_i$ 为第 $i$ 个响应的估计优势值（"帽子"符号 $\hat{\cdot}$ 表示估计量），$r(x, y_i)$ 为奖励函数对提示 $x$ 和响应 $y_i$ 的评分，$\mu_G$ 为组内奖励均值（下标 $G$ 表示该统计量基于 $G$ 个样本计算），$\sigma_G$ 为组内奖励标准差。
+其中 $\hat{A}_i$ 为第 $i$ 个响应的估计优势值（"帽子"符号 $\hat{\cdot}$ 表示估计量），$R(x, y_i)$ 为奖励函数对提示 $x$ 和响应 $y_i$ 的评分，$\mu_G$ 为组内奖励均值（下标 $G$ 表示该统计量基于 $G$ 个样本计算），$\sigma_G$ 为组内奖励标准差，$\epsilon$ 为防止除零的数值稳定项（原文无此项，属实现惯例）。
 
 GRPO 与 PPO 对比如表 3-38 所示。
 
@@ -1809,9 +1811,9 @@ DeepSeek-R1（2025.01）：使用 GRPO 进行长链推理（Long Chain-of-Though
 
 GRPO 需要对每个提示生成 $G$ 个响应（典型值 $G=4\sim8$），导致生成阶段的 KV-Cache 占用激增：
 
-$$M_{\mathrm{KV}} = G \cdot L \cdot H \cdot d \cdot T \cdot \text{sizeof}(\text{dtype}) $$
+$$M_{\mathrm{KV}} = 2 \cdot G \cdot L \cdot H_{\mathrm{KV}} \cdot d_{\mathrm{h}} \cdot T \cdot b $$
 
-其中 $L$ 为层数，$H$ 为注意力头数，$d$ 为头维度，$T$ 为序列长度。对于 Llama-3.1-8B 模型（$L=32, H=32, d=128$），在 20K 上下文长度下生成 8 个响应需要约 68 GiB 显存（见表 3-39）。
+其中 $L$ 为层数，$H_{\mathrm{KV}}$ 为 KV 头数（GQA 时小于查询头数），$d_{\mathrm{h}}$ 为头维度，$T$ 为序列长度，$b$ 为每元素字节数，系数 2 对应 K、V 两份缓存。对于 Llama-3.1-8B 模型（$L=32, H_{\mathrm{KV}}=8, d_{\mathrm{h}}=128$），在 20K 上下文长度下生成 8 个响应约需 20 GiB 显存。表 3-39 中 TRL+FA2 一列的 68 GB 沿用 Unsloth 博客口径（含框架额外开销），与上式口径不同。
 
 挑战 2：策略概率计算的显存峰值
 
@@ -1969,31 +1971,29 @@ DAPO[^dapo]（Decoupled Clip and Dynamic sAmpling Policy Optimization）是字�
 
 传统 PPO/GRPO 使用对称裁剪，DAPO 使用不对称裁剪：
 
-$$\mathcal{L}_{\mathrm{DAPO}} = \begin{cases}
-\min(r(\theta) A, \text{clip}(r(\theta), 1-\epsilon_{\mathrm{low}}, 1+\epsilon_{\mathrm{high}}) A) & \text{if } A \geq 0 \\
-\min(r(\theta) A, \text{clip}(r(\theta), 1-\epsilon_{\mathrm{high}}, 1+\epsilon_{\mathrm{low}}) A) & \text{if } A < 0
-\end{cases} $$
+$$L_{\mathrm{DAPO}} = \min(r(\theta) A, \text{clip}(r(\theta), 1-\epsilon_{\mathrm{low}}, 1+\epsilon_{\mathrm{high}}) A) $$
 
-其中 $A$ 为优势函数值，$r(\theta)$ 为重要性采样比率，$\text{clip}(\cdot, a, b)$ 将输入值裁剪到区间 $[a, b]$。典型配置：$\epsilon_{\mathrm{low}} = 0.1, \epsilon_{\mathrm{high}} = 0.3$。不对称裁剪鼓励探索同时保持稳定性，避免长 CoT 场景的熵坍塌。
+其中 $A$ 为优势函数值，$r(\theta)$ 为重要性采样比率，$\text{clip}(\cdot, a, b)$ 将输入值裁剪到区间 $[a, b]$。典型配置：$\epsilon_{\mathrm{low}} = 0.2, \epsilon_{\mathrm{high}} = 0.28$。不对称裁剪鼓励探索同时保持稳定性，避免长 CoT 场景的熵坍塌。
 
 2. Dynamic Sampling：动态批次过滤
 
-动态过滤低质量样本，仅使用有效梯度的样本训练。当 clip_fraction > 0.9 时，过滤被裁剪的样本。
+动态过滤无有效梯度的 prompt：若某 prompt 的 $G$ 个采样响应全部正确或全部错误（正确响应数未严格位于 0 与 $G$ 之间），组归一化后的优势恒为零、不产生梯度。DAPO 过滤这类 prompt 并继续采样，直至凑满批次，保证每个训练批次都含有有效梯度。
 
 3. Token-Level Policy Gradient Loss
 
-长 CoT 的不同 token 重要性不同，DAPO 使用 token 级权重：
-- 问题理解阶段（< 0.2T）：权重 1.0；
-- 推理阶段（0.2T - 0.8T）：权重 2.0；
-- 答案阶段（> 0.8T）：权重 3.0。
+DAPO 将损失聚合方式从样本级改为 token 级：GRPO 先在每条序列内对 token 取平均、再对 $G$ 个样本取平均，长序列中每个 token 的贡献会被稀释；DAPO 改为以组内所有响应的 token 总数为分母进行聚合，使每个 token 对损失的权重一致，长 CoT 中的 token 级奖惩不再随序列长度衰减。
 
 4. Overlong Reward Shaping
 
-对于过长的响应引入长度惩罚：
+对于过长的响应，DAPO 采用分段软惩罚（Soft Overlong Punishment）：
 
-$$r_{\mathrm{shaped}} = r_{\mathrm{task}} - \lambda_{\mathrm{len}} \cdot \max(0, T - T_{\mathrm{max}}) / T_{\mathrm{max}} $$
+$$R_{\mathrm{length}}(y) = \begin{cases}
+0, & |y| \leq L_{\mathrm{max}} - L_{\mathrm{cache}} \\
+\dfrac{(L_{\mathrm{max}} - L_{\mathrm{cache}}) - |y|}{L_{\mathrm{cache}}}, & L_{\mathrm{max}} - L_{\mathrm{cache}} < |y| \leq L_{\mathrm{max}} \\
+-1, & |y| > L_{\mathrm{max}}
+\end{cases} $$
 
-其中 $r_{\mathrm{shaped}}$ 为调整后的奖励，$r_{\mathrm{task}}$ 为任务奖励，$T$ 为响应的 token 长度，$\lambda_{\mathrm{len}}$ 为长度惩罚系数，$T_{\mathrm{max}}$ 为最大期望长度。典型配置：$\lambda_{\mathrm{len}} = 0.1, T_{\mathrm{max}} = 8192$。
+其中 $|y|$ 为响应的 token 长度，$L_{\mathrm{cache}}$ 为软惩罚缓冲长度，$L_{\mathrm{max}}$ 为最大生成长度，该长度奖励叠加在任务奖励之上。典型配置：期望长度 16384、$L_{\mathrm{cache}} = 4096$、$L_{\mathrm{max}} = 20480$。此外 DAPO 还采用过长过滤（Overlong Filtering）：对因超长被截断的样本屏蔽其损失，避免截断噪声污染惩罚信号。
 
 DAPO 性能：Qwen2.5-32B 在 AIME 2024 从 47 分提升至 50 分，训练步数减少 50%。
 
@@ -2003,28 +2003,23 @@ StepGRPO 在 GRPO 基础上引入步级奖励（Step-level Reward），由清华
 
 传统 GRPO 仅在最终结果给予奖励，StepGRPO 在每个推理步骤给予奖励：
 
-$$r_{\mathrm{step}}(x, y_{1:t}) = \alpha \cdot r_{\mathrm{accuracy}}(y_{1:t}) + \beta \cdot r_{\mathrm{validity}}(y_{1:t}) $$
+$$r^i = r_{\mathrm{RAR}}^i + r_{\mathrm{RVR}}^i $$
 
-其中 $x$ 为输入提示，$y_{1:t}$ 为从第 1 到第 $t$ 步的推理序列，$\alpha$ 和 $\beta$ 为权重系数，$r_{\mathrm{accuracy}}$ 为准确性奖励，$r_{\mathrm{validity}}$ 为有效性奖励。
+其中 $i$ 为推理步骤索引，$r_{\mathrm{RAR}}^i$ 为步级准确性奖励（StepRAR），$r_{\mathrm{RVR}}^i$ 为步级有效性奖励（StepRVR），二者直接相加（原文中 $\alpha = 0.1$ 是 StepRAR 内部系数，$\beta = 0.04$ 为 KL 系数，均非奖励加权）。
 
 步级准确性奖励（StepRAR）：
 
-$$r_{\mathrm{accuracy}}(y_{1:t}) = \frac{1}{K} \sum_{k=1}^K \mathbb{1}[\text{key\_step}_k \in y_{1:t}] $$
+$$k^i = \frac{|v_{\mathrm{match}}|}{|v|}, \quad r_{\mathrm{RAR}}^i = \begin{cases}
+1 + \alpha k^i, & \text{该步已产生正确答案} \\
+\alpha k^i, & \text{已产生答案但错误} \\
+0, & \text{未产生答案}
+\end{cases} $$
 
-其中 $K$ 为关键步骤数（如数学题的中间结果），$\mathbb{1}[\cdot]$ 为指示函数（条件成立时值为 1，否则为 0），$\text{key\_step}_k \in y_{1:t}$ 表示第 $k$ 个关键步骤出现在当前推理序列中。
+其中 $v$ 为该步骤应命中的关键推理要素集合，$v_{\mathrm{match}}$ 为已命中子集，$k^i$ 为关键步骤匹配比例。
 
-步级有效性奖励（StepRVR）：评估推理完整性和逻辑一致性，包括是否有结论、是否有解释、是否有多步推理等。
+步级有效性奖励（StepRVR）：当且仅当推理同时满足完整性（有明确最终结论）与逻辑性（结论由前文推理支撑）两个条件时取 1，否则取 0。
 
-步级奖励使模型在推理过程中获得更密集的反馈信号，加速学习关键推理步骤。StepGRPO 与 GRPO 性能对比如表 3-44 所示。
-
-表 3-44 StepGRPO 与 GRPO 性能对比
-
-| 指标 | GRPO | StepGRPO | 提升 |
-|------|------|----------|------|
-| GSM8K（7B）| 83.2% | 87.5% | +4.3% |
-| MATH（7B）| 48.6% | 53.1% | +4.5% |
-| 样本效率 | 基准 | 1.5x | - |
-| 收敛速度 | 基准 | 1.3x | - |
+步级奖励使模型在推理过程中获得更密集的反馈信号，加速学习关键推理步骤。R1-VL 的实验基于 Qwen2-VL/Qwen2.5-VL，在 MathVista、MMStar、Math-Vision 等 9 个多模态基准上进行，StepGRPO 相对普通 GRPO 取得一致提升（原文不包含 GSM8K/MATH 实验，原对比表数据无出处，故予删除）。
 
 ## 3.5 DSpark 原理与技术解析
 
@@ -2057,7 +2052,7 @@ $$
 DFlash 的关键技术是 **KV 注入**：在 prefill 阶段，从目标模型的一组层 $\{l_1, \ldots, l_m\}$ 提取隐状态，拼接后投影到草稿模型的隐空间：
 
 $$
-H_{\text{ctx}} = \text{RMSNorm}\big(W_c\,[H^{(l_1)}; \ldots; H^{(l_m)}]\big)
+\mathbfit{H}_{\text{ctx}} = \text{RMSNorm}\big(\mathbfit{W}_{\mathrm{c}}\,[\mathbfit{H}^{(l_1)}; \ldots; \mathbfit{H}^{(l_m)}]\big)
 $$
 
 这些上下文特征沿序列维度拼入草稿模型每一层的 Key 和 Value，块内所有位置彼此双向可见。草稿模型复用目标模型的 embedding 层与语言建模头（均冻结）。
@@ -2094,24 +2089,24 @@ $$
 
 #### 3.5.2.2 Markov 头：一阶转移偏置
 
-最简单的串行块实例将 $B_k$ 限制为仅依赖紧邻前一个 token 的一阶转移 $B(x_{k-1}, x_k)$。原则上这是一个完整的 $V \times V$ 矩阵 $B$；DSpark 用低秩分解近似：$B = W_1 W_2$，其中 $W_1 \in \mathbb{R}^{V \times r}$、$W_2 \in \mathbb{R}^{r \times V}$。给定前一 token $x_{k-1}$，位置 $k$ 的转移偏置为：
+最简单的串行块实例将 $B_k$ 限制为仅依赖紧邻前一个 token 的一阶转移 $B(x_{k-1}, x_k)$。原则上这是一个完整的 $V \times V$ 矩阵 $\mathbfit{B}$；DSpark 用低秩分解近似：$\mathbfit{B} = \mathbfit{W}_1 \mathbfit{W}_2$，其中 $\mathbfit{W}_1 \in \mathbb{R}^{V \times r}$、$\mathbfit{W}_2 \in \mathbb{R}^{r \times V}$。给定前一 token $x_{k-1}$，位置 $k$ 的转移偏置为：
 
 $$
-B(x_{k-1}, \cdot) = W_1[x_{k-1}]\, W_2 \ \in \mathbb{R}^{V}
+\mathbfit{B}(x_{k-1}, \cdot) = \mathbfit{W}_1[x_{k-1}]\, \mathbfit{W}_2 \ \in \mathbb{R}^{V}
 $$
 
-$W_1$ 相当于一张 embedding 查找表，$W_2$ 为 logit 投影。默认秩 $r = 256$，使存储与每步计算量都很小，即便面对大词表串行循环也足够高效。回到前面的例子：一旦位置 1 采样到 "of"，Markov 头就会在位置 2 抬高 "course"、压低 "problem"，缓解跨模式碰撞。
+$\mathbfit{W}_1$ 相当于一张 embedding 查找表，$\mathbfit{W}_2$ 为 logit 投影。默认秩 $r = 256$，使存储与每步计算量都很小，即便面对大词表串行循环也足够高效。回到前面的例子：一旦位置 1 采样到 “of”，Markov 头就会在位置 2 抬高 “course”、压低 “problem”，缓解跨模式碰撞。
 
 #### 3.5.2.3 RNN 头：携带完整前缀历史
 
-Markov 头在一步之外无记忆——位置 $k$ 无法访问 $x_{k-1}$ 之前的 token。RNN 头通过维护一个块内累积完整前缀历史的循环状态 $s_k$ 放宽此限制。每一步将当前状态 $s_{k-1} \in \mathbb{R}^r$、前一 token 嵌入 $W_1[x_{k-1}] \in \mathbb{R}^r$ 与主干隐状态 $h_k \in \mathbb{R}^d$ 拼接为输入向量 $z_k = [s_{k-1};\, W_1[x_{k-1}];\, h_k] \in \mathbb{R}^{2r+d}$，然后执行单次门控更新：
+Markov 头在一步之外无记忆——位置 $k$ 无法访问 $x_{k-1}$ 之前的 token。RNN 头通过维护一个块内累积完整前缀历史的循环状态 $\mathbfit{s}_k$ 放宽此限制。每一步将当前状态 $\mathbfit{s}_{k-1} \in \mathbb{R}^r$、前一 token 嵌入 $\mathbfit{W}_1[x_{k-1}] \in \mathbb{R}^r$ 与主干隐状态 $\mathbfit{h}_k \in \mathbb{R}^d$ 拼接为输入向量 $\mathbfit{z}_k = [\mathbfit{s}_{k-1};\, \mathbfit{W}_1[x_{k-1}];\, \mathbfit{h}_k] \in \mathbb{R}^{2r+d}$，然后执行单次门控更新：
 
 $$
-s_k = \sigma(W_g z_k) \odot s_{k-1} + \big(1 - \sigma(W_g z_k)\big) \odot \tanh(W_c z_k), \qquad
-B_k(x_{<k}, \cdot) = W_2^\top \tanh(W_o z_k)
+\mathbfit{s}_k = \sigma(\mathbfit{W}_{\mathrm{g}} \mathbfit{z}_k) \odot \mathbfit{s}_{k-1} + \big(1 - \sigma(\mathbfit{W}_{\mathrm{g}} \mathbfit{z}_k)\big) \odot \tanh(\mathbfit{W}_{\mathrm{c}} \mathbfit{z}_k), \qquad
+B_k(x_{<k}, \cdot) = \mathbfit{W}_2^\top \tanh(\mathbfit{W}_{\mathrm{o}} \mathbfit{z}_k)
 $$
 
-其中 $W_g, W_c, W_o \in \mathbb{R}^{(2r+d) \times r}$ 由单个线性投影联合参数化后切分为门控、候选与输出三部分，初始状态 $s_0$ 置零。
+其中 $\mathbfit{W}_{\mathrm{g}}, \mathbfit{W}_{\mathrm{c}}, \mathbfit{W}_{\mathrm{o}} \in \mathbb{R}^{(2r+d) \times r}$ 由单个线性投影联合参数化后切分为门控、候选与输出三部分，初始状态 $\mathbfit{s}_0$ 置零。
 
 实验表明（见 3.5.5.2 节），RNN 头相对 Markov 头仅在较长草稿块上有边际增益，而部署复杂度更高，因此 **DSpark 默认采用 Markov 头**。开源代码中还实现了第三个变体 gated Markov 头（在 Markov 嵌入上施加以主干隐状态为条件的 sigmoid 门控），可视为两者之间的折中。
 
@@ -2122,10 +2117,10 @@ $$
 置信度头对每个草稿位置 $k$ 输出一个标量估计 $c_k \in (0, 1)$，建模**条件概率**：在块内所有先前 token 均已被接受的前提下，位置 $k$ 的草稿 token 通过目标模型验证的概率。结构是一个轻量线性投影加 sigmoid：
 
 $$
-c_k = \sigma\big(w^\top [h_k;\ W_1[x_{k-1}]]\big)
+c_k = \sigma\big(\mathbfit{w}^\top [\mathbfit{h}_k;\ \mathbfit{W}_1[x_{k-1}]]\big)
 $$
 
-其中 $h_k$ 为主干隐状态，$W_1[x_{k-1}]$ 为前一草稿 token 的 Markov 嵌入。监督信号采用逐步接受率的**解析真值** $c_k^*$——由草稿分布 $p_k^d$ 与目标分布 $p_k^t$ 之间的总变差距离决定：
+其中 $\mathbfit{h}_k$ 为主干隐状态，$\mathbfit{W}_1[x_{k-1}]$ 为前一草稿 token 的 Markov 嵌入。监督信号采用逐步接受率的**解析真值** $c_k^*$——由草稿分布 $p_k^d$ 与目标分布 $p_k^t$ 之间的总变差距离决定：
 
 $$
 c_k^* = 1 - \tfrac{1}{2}\big\|p_k^d - p_k^t\big\|_1
@@ -2141,9 +2136,9 @@ $$
 
 #### 3.5.3.3 硬件感知前缀调度器
 
-有了校准的置信度信号，验证长度选择被形式化为一个**全局吞吐量最大化问题**。考虑一批 $R$ 个活跃请求，请求 $r$ 的逐位置置信度估计为 $c_{r,1}, \ldots, c_{r,\gamma}$，调度的验证长度为 $\ell_r \in \{0, \ldots, \gamma\}$。由于投机解码只按连续前缀接受草稿 token，位置 $j$ 的 token 存活概率为累积乘积 $a_{r,j} = \prod_{i \le j} c_{r,i}$。
+有了校准的置信度信号，验证长度选择被形式化为一个**全局吞吐量最大化问题**。考虑一批 $R$ 个活跃请求，请求 $r$ 的逐位置置信度估计为 $c_{r,1}, \ldots, c_{r,\gamma}$，调度的验证长度为 $l_r \in \{0, \ldots, \gamma\}$。由于投机解码只按连续前缀接受草稿 token，位置 $j$ 的 token 存活概率为累积乘积 $a_{r,j} = \prod_{i \le j} c_{r,i}$。
 
-单次验证步中，发送给目标模型的总批大小（以 token 计）为 $B = \sum_{r=1}^{R}(1 + \ell_r)$，期望成功接受的 token 数为 $\tau = \sum_{r=1}^{R}\big(1 + \sum_{j=1}^{\ell_r} a_{r,j}\big)$。设 $\text{SPS}(B)$ 为引擎在前向批大小 $B$ 下的吞吐（步/秒）——该容量曲线在引擎初始化时一次性剖析（profile）并存为轻量代价表。调度器的目标是通过动态选择 $\ell_1, \ldots, \ell_R$ 最大化期望系统级 token 吞吐：
+单次验证步中，发送给目标模型的总批大小（以 token 计）为 $B = \sum_{r=1}^{R}(1 + l_r)$，期望成功接受的 token 数为 $\tau = \sum_{r=1}^{R}\big(1 + \sum_{j=1}^{l_r} a_{r,j}\big)$。设 $\text{SPS}(B)$ 为引擎在前向批大小 $B$ 下的吞吐（步/秒）——该容量曲线在引擎初始化时一次性剖析（profile）并存为轻量代价表。调度器的目标是通过动态选择 $l_1, \ldots, l_R$ 最大化期望系统级 token 吞吐：
 
 $$
 \Theta = \tau \cdot \text{SPS}(B)
