@@ -233,7 +233,7 @@ MoE的核心思想是将Transformer 中的前馈网络（Feed-Forward Network，
 
 #### 2. 细粒度专家分割原理
 
-为了解决传统架构中专家粒度过粗导致的“知识混合”问题，DeepSeekMoE 引入了细粒度专家分割（Fine-Grained Expert Segmentation）策略：在保持总参数规模和单次前向传播计算量（即激活参数量）不变的前提下，通过增加专家总数量并相应减小单个专家的参数规模，来提升专家组合的灵活性与知识表达的精确度。
+为了解决传统架构中专家粒度过粗导致的“知识混合”问题，DeepSeekMoE 引入了细粒度专家分割（Fine-Grained Expert Segmentation）策略：在保持总参数规模和单次前向传播计算量（激活参数量）不变的前提下，通过增加专家总数量并相应减小单个专家的参数规模，来提升专家组合的灵活性与知识表达的精确度。
 
 从数学结构上看，假设一个标准的 MoE 架构（如 GShard）包含 $N$ 个专家，每个专家的前馈网络（FFN）中间隐藏层维度为 $d$，每次推理时针对每个 Token 激活前 $K$ 个专家。细粒度分割策略引入了一个超参数 $m$（分割因子），将每个原始专家在隐藏层维度上分割为 $m$ 个更小的子专家。
 
@@ -259,7 +259,7 @@ MoE的核心思想是将Transformer 中的前馈网络（Feed-Forward Network，
 
 - **共享专家**：对所有Token生效，不参与路由筛选，在每次前向传播中都会被激活。其职责是捕获和存储跨领域知识，提供基础的通用能力，避免了在大量专家中重复学习相同的基础模式。
 
-- **路由专家**：这类专家和传统MoE的专家相同，通过门控网络（即router）根据输入内容的特征按需激活，提供特定领域的专业能力。
+- **路由专家**：这类专家和传统MoE的专家相同，通过门控网络（router）根据输入内容的特征按需激活，提供特定领域的专业能力。
 
 这种设计就像一个公司团队：共享专家是“全能行政人员”，为每个任务提供基本支持；而路由专家则是“专业人员”，只在需要时出场。
 
@@ -355,7 +355,7 @@ $$
 
 为了解决这一问题，传统 MoE 架构通常在总损失函数中引入一个额外的辅助损失项（Auxiliary Loss），用于对门控网络（Router）进行训练，惩罚分布不均的路由决策，迫使其将 Token 尽可能均匀地分配给各个专家。
 
-然而，这种机制在实际应用中存在局限性。辅助损失本质上引入了一个与模型主任务（即最大化预测准确率）不一致的优化目标。在训练过程中，为了降低辅助损失以满足平衡性约束，门控网络可能学习到将 Token 分配给并非最优但负载较轻的专家，这会干扰模型的主任务优化，导致模型在基准测试中的性能下降。这种以牺牲路由准确性换取负载均匀性的策略，制约了 MoE 模型的性能。
+然而，这种机制在实际应用中存在局限性。辅助损失本质上引入了一个与模型主任务（最大化预测准确率）不一致的优化目标。在训练过程中，为了降低辅助损失以满足平衡性约束，门控网络可能学习到将 Token 分配给并非最优但负载较轻的专家，这会干扰模型的主任务优化，导致模型在基准测试中的性能下降。这种以牺牲路由准确性换取负载均匀性的策略，制约了 MoE 模型的性能。
 
 #### 2. 无辅助损失的动态偏置调整机制
 
@@ -455,7 +455,7 @@ $$
 
 其中，$\mathbfit{c}_{t}^{\text{KV}} \in \mathbb{R}^{d_{c}}$是用于生成键和值的共享潜在向量，$d_{c}$为键-值 压缩维度，$\mathbfit{W}^{\text{DKV}} \in \mathbb{R}^{d_{c} \times d}$ 为下投影权重矩阵。
 
-在这一步中，$d_{c}$的取值通常远小于标准MHA中所有注意力头维度的总和（即$d_{c} \ll d_{h}n_{h}$）。例如，在DeepSeek-V2/V3的配置中，$d_{c}$被设置为$4d_{h}$（即相当于4个头的维度），而总头数$n_{h}$为128。这意味着在缓存阶段，系统只需存储极小的$\mathbfit{c}_{t}^{\text{KV}}$，而非庞大的展开向量。
+在这一步中，$d_{c}$的取值通常远小于标准MHA中所有注意力头维度的总和（$d_{c} \ll d_{h}n_{h}$）。例如，在DeepSeek-V2/V3的配置中，$d_{c}$被设置为$4d_{h}$（相当于4个头的维度），而总头数$n_{h}$为128。这意味着在缓存阶段，系统只需存储极小的$\mathbfit{c}_{t}^{\text{KV}}$，而非庞大的展开向量。
 
 （2）上投影：键-值的还原
 
@@ -560,17 +560,17 @@ $$
 矩阵吸收的核心在于矩阵乘法的结合律。以键向量的注意力分数的内容部分计算为例，标准流程需先通过上投影矩阵$\mathbfit{W}^{\text{UK}}$将潜在向量$\mathbfit{c}^{\text{KV}}$恢复为键向量$\mathbfit{k}^{C}$，再与查询向量$\mathbfit{q}^{C}$计算点积：
 
 $$
-\mathbfit{q}_{t,i}^{C} = \mathbfit{W}_{i}^{\text{UQ}}\mathbfit{c}_{t}^{Q},\quad\mathbfit{k}_{j,i}^{C} = \mathbfit{W}_{i}^{\text{UK}}\mathbfit{c}_{j}^{\text{KV}}\quad\quad(1)
+\mathbfit{q}_{t,i}^{C} = \mathbfit{W}_{i}^{\text{UQ}}\mathbfit{c}_{t}^{Q},\quad\mathbfit{k}_{j,i}^{C} = \mathbfit{W}_{i}^{\text{UK}}\mathbfit{c}_{j}^{\text{KV}}
 $$
 
 $$
-(\mathbfit{q}_{t,i}^{C})^{T}\mathbfit{k}_{j,i}^{C} = (\mathbfit{W}_{i}^{\text{UQ}}\mathbfit{c}_{t}^{Q})^{T}(\mathbfit{W}_{i}^{\text{UK}}\mathbfit{c}_{j}^{\text{KV}})\quad\quad(2)
+(\mathbfit{q}_{t,i}^{C})^{T}\mathbfit{k}_{j,i}^{C} = (\mathbfit{W}_{i}^{\text{UQ}}\mathbfit{c}_{t}^{Q})^{T}(\mathbfit{W}_{i}^{\text{UK}}\mathbfit{c}_{j}^{\text{KV}})
 $$
 
 根据矩阵乘法的结合律，上式可重构为：
 
 $$
-(\mathbfit{q}_{t,i}^{C})^{T}\mathbfit{k}_{j,i}^{C} = \mathbfit{c}_{t}^{Q,T}\underset{可预先计算的静态矩阵}{\underbrace{(\mathbfit{W}_{i}^{\text{UQ},T}\mathbfit{W}_{i}^{\text{UK}})}}\mathbfit{c}_{j}^{\text{KV}}\quad\quad(3)
+(\mathbfit{q}_{t,i}^{C})^{T}\mathbfit{k}_{j,i}^{C} = \mathbfit{c}_{t}^{Q,T}\underset{可预先计算的静态矩阵}{\underbrace{(\mathbfit{W}_{i}^{\text{UQ},T}\mathbfit{W}_{i}^{\text{UK}})}}\mathbfit{c}_{j}^{\text{KV}}
 $$
 
 由于 $\mathbfit{W}_{i}^{\text{UQ},T}\mathbfit{W}_{i}^{\text{UK}}$ 是与输入无关的静态权重，可在模型加载阶段预先计算得到吸收后的静态矩阵 ${\widetilde{\mathbfit{W}}}_{i} \in \mathbb{R}^{d_{\mathbfit{c}^{'}} \times d_{c}}$，这被称为“预融合（Pre-fuse）”。这意味着在推理时，系统无需从潜在向量 $\mathbfit{c}_{j}^{\text{KV}}$ 中恢复高维的键向量 $\mathbfit{k}_{j,i}^{C}$，也无需显式计算高维的查询内容向量 $\mathbfit{q}_{t,i}^{C}$。模型可以直接使用低维的潜在向量 $\mathbfit{c}_{t}^{Q}$ 和 $\mathbfit{c}_{j}^{\text{KV}}$ 进行注意力分数的计算，将计算复杂度从 $O(d_{h}n_{h})$ 降低至 $O(d_{c})$。
@@ -582,7 +582,7 @@ $$
 综合上述矩阵吸收机制和上一小节的解耦RoPE：
 
 $$
-\mathbfit{q}_{t,i}^{T}\mathbfit{k}_{j,i} = \underset{\text{矩阵吸收优化，低维计算}}{\underbrace{\mathbfit{c}_{t}^{Q,T}{\widetilde{\mathbfit{W}}}_{i}\mathbfit{c}_{j}^{\text{KV}}}} + \underset{\text{需显式计算，但维度仅为 }d_{h}^{R}}{\underbrace{(\mathbfit{q}_{t,i}^{R})^{T}\mathbfit{k}_{j}^{R}}}\quad\quad(4)
+\mathbfit{q}_{t,i}^{T}\mathbfit{k}_{j,i} = \underset{\text{矩阵吸收优化，低维计算}}{\underbrace{\mathbfit{c}_{t}^{Q,T}{\widetilde{\mathbfit{W}}}_{i}\mathbfit{c}_{j}^{\text{KV}}}} + \underset{\text{需显式计算，但维度仅为 }d_{h}^{R}}{\underbrace{(\mathbfit{q}_{t,i}^{R})^{T}\mathbfit{k}_{j}^{R}}}
 $$
 
 MLA 在推理生成阶段的完整计算过程如下：
@@ -762,7 +762,7 @@ DSA 的细粒度计算阶段建立在 MLA 的 **MQA（Multi-Query Attention）�
 **矩阵吸收的延续应用**：在 2.3.1 节中介绍的**矩阵吸收（Matrix Absorption）**技术在 DSA 中依然适用。当计算注意力分数时，模型无需显式将选中的 $k$ 个潜在向量恢复为高维键向量，而是直接在低维潜在空间中完成查询与键的交互：
 
 $$
-(\mathbfit{q}_{t,i}^{C})^{T}\mathbfit{k}_{j,i}^{C} = \mathbfit{c}_{t}^{Q,T}{\widetilde{\mathbfit{W}}}_{i}\mathbfit{c}_{j}^{\text{KV}},\quad j \in \mathcal{S}_{t}\quad\quad(5)
+(\mathbfit{q}_{t,i}^{C})^{T}\mathbfit{k}_{j,i}^{C} = \mathbfit{c}_{t}^{Q,T}{\widetilde{\mathbfit{W}}}_{i}\mathbfit{c}_{j}^{\text{KV}},\quad j \in \mathcal{S}_{t}
 $$
 
 这使得即使只选择少量词元进行计算，每次注意力操作仍保持在低维空间（$d_{c} = 512$）完成，而非高维空间（$d_{h}n_{h} = 16,384$），计算效率提升与 MLA 的优化相乘。
@@ -881,7 +881,7 @@ DSA 不仅是一种算法优化，更是对注意力机制**计算范式**的重
 
 传统自回归语言模型的训练遵循下一词元预测（Next-Token Prediction）范式，即模型基于历史上下文 $t_{1},t_{2},...,t_{i}$ 预测紧接的下一个词元 $t_{i + 1}$。这种训练方式尽管在实践中取得了显著成效，但其固有的**监督信号稀疏性**问题不容忽视：对于输入序列中的每一个位置，模型仅能获得单一未来位置的真实标签作为监督，导致每个训练样本的利用效率受限。具体而言，模型在处理第 $i$ 个词元时，其优化目标被严格约束于 $t_{i + 1}$ 的预测准确性，而无法同时利用序列中后续多个位置的信息来指导当前表示的学习。这种稀疏的监督分布可能限制模型对长程依赖关系的捕捉能力，并使其难以构建具有前瞻性的内部表示空间。
 
-为解决上述局限，DeepSeek-V3 采用**多词元预测（Multi-Token Prediction, MTP）**[^mtp]作为辅助训练目标。该方法的核心思想在于：在保持自回归框架的前提下，将模型的预测范围从单一的下一词元扩展至未来的连续 $D$ 个词元。形式上，对于序列中的每个位置 $i$，模型不仅需要预测 $t_{i + 1}$，还需并行预测 $t_{i + 2},...,t_{i + D}$。通过引入深度为 $D$ 的预测任务，MTP 实现了训练信号的**稠密化**（Densification）：每个输入位置现在可生成 $D$ 个独立的训练样本，从而显著提升了梯度的信息密度与数据利用效率。
+为解决上述局限，DeepSeek-V3 采用**多词元预测（Multi-Token Prediction, MTP）**[^mtp]作为辅助训练目标。该方法的核心思想在于：在保持自回归框架的前提下，将模型的预测范围从单一的下一词元扩展至未来的连续 $D$ 个词元。形式上，对于序列中的每个位置 $i$，模型不仅需要预测 $t_{i + 1}$，还需并行预测 $t_{i + 2},t_{i + 3},...,t_{i + D}$。通过引入深度为 $D$ 的预测任务，MTP 实现了训练信号的**稠密化**（Densification）：每个输入位置现在可生成 $D$ 个独立的训练样本，从而显著提升了梯度的信息密度与数据利用效率。
 
 此外，扩展预测范围促使模型在当前位置生成表示时，必须同时考虑对未来多个词元的预测需求。这种机制强制模型学习**预规划（Pre-planning）**其内部表示，即当前层的隐状态需编码足够的信息以支持对未来 $D$ 个位置的有效预测。相较于传统单步预测仅关注紧邻下一词元的局部优化，MTP 引导模型构建更具前瞻性的语义表示，从而在数学推理、代码生成等需要多步逻辑连贯性的任务中展现出更强的性能。在 DeepSeek-V3 的具体配置中，$D$ 被设定为 1，即在标准下一词元预测的基础上额外增加一个未来词元的预测任务，以此在计算开销与性能增益之间取得平衡。
 
@@ -900,7 +900,7 @@ DeepSeek-V3 的 MTP 实现采用**串行模块化架构**，通过 $D$ 个顺序
 与此同时，为避免不同深度预测任务之间的表示冲突，各 MTP 模块配备**独立的投影矩阵与 Transformer 块**。对于第 $i$ 个输入词元在第 $k$ 个预测深度，模块首先通过投影矩阵 $\mathbfit{M}_{k}$ 将前一深度的表示 $\mathbfit{h}_{i}^{k - 1} \in \mathbb{R}^{d}$（当 $k = 1$ 时，该表示来自主模型）与目标词元的嵌入 $\text{Emb}(t_{i + k}) \in \mathbb{R}^{d}$ 进行拼接与线性变换：
 
 $$
-\mathbfit{h}_{i}^{'k} = \mathbfit{M}_{k}\lbrack\text{RMSNorm}(\mathbfit{h}_{i}^{k - 1});\text{RMSNorm}(\text{Emb}(t_{i + k}))\rbrack\quad\quad(1)
+\mathbfit{h}_{i}^{'k} = \mathbfit{M}_{k}\lbrack\text{RMSNorm}(\mathbfit{h}_{i}^{k - 1});\text{RMSNorm}(\text{Emb}(t_{i + k}))\rbrack
 $$
 
 随后，独立的 Transformer 块 $\text{TRM}_{k}$ 处理该投影后的表示，生成当前深度的输出隐状态 $\mathbfit{h}_{i}^{k}$。这种“共享-独立”混合架构既通过参数共享降低了过拟合风险与内存开销，又通过独立变换赋予了各深度预测任务必要的灵活性。
@@ -910,7 +910,7 @@ $$
 DeepSeek-V3 的 MTP 实现通过严格的**因果链构建机制**确保模型在多步预测过程中保持自回归特性。对于第 $k$ 个预测深度（$1 \leq k \leq D$），该模块接收两个输入：来自前一深度的表示 $\mathbfit{h}_{i}^{k - 1}$（对于 $k = 1$，此表示即为主模型输出的隐藏状态 $\mathbfit{u}_{t}$）以及第 $(i + k)$ 个词元的嵌入 $\text{Emb}(t_{i + k})$。二者分别经 RMSNorm 归一化后拼接，并通过投影矩阵 $\mathbfit{M}_{k}$ 进行维度变换，生成该深度的输入表示 $\mathbfit{h}_{i}^{'k}$。随后，独立的 Transformer 块 $\text{TRM}_{k}$ 对该表示进行处理：
 
 $$
-\mathbfit{h}_{1:T - k}^{k} = \text{TRM}_{k}(\mathbfit{h}_{1:T - k}^{'k})\quad\quad(2)
+\mathbfit{h}_{1:T - k}^{k} = \text{TRM}_{k}(\mathbfit{h}_{1:T - k}^{'k})
 $$
 
 其中 $T$ 为输入序列长度，下标 $1:T - k$ 表示因果掩码（Causal Masking）确保仅利用前序位置的信息。最终，共享的输出头将 $\mathbfit{h}_{i}^{k}$ 映射为第 $k$ 个未来词元的预测分布 $P_{i + k + 1}^{k}$。这种**顺序依赖结构**强制模型在预测第 $i + k$ 个词元时，必须考虑对第 $i + 1$ 至第 $i + k - 1$ 个词元的预测历史，从而形成完整的因果推理链，避免了并行预测方案中各深度独立计算可能导致的信息割裂。
@@ -918,18 +918,18 @@ $$
 在训练优化层面，MTP 通过**多深度损失函数**实现训练信号的稠密化。对于每个预测深度 $k$，模型计算该深度的交叉熵损失：
 
 $$
-\mathcal{L}_{\text{MTP}}^{k} = - \frac{1}{T}\sum_{i = 2 + k}^{T + 1}\log P_{i}^{k}\lbrack t_{i}\rbrack\quad\quad(3)
+\mathcal{L}_{\text{MTP}}^{k} = - \frac{1}{T}\sum_{i = 2 + k}^{T + 1}\log P_{i}^{k}\lbrack t_{i}\rbrack
 $$
 
 其中 $t_{i}$ 为第 $i$ 个位置的真实词元，$P_{i}^{k}\lbrack t_{i}\rbrack$ 表示第 $k$ 个 MTP 模块对该词元的预测概率。最终的 MTP 损失为各深度损失的加权平均：
 
 $$
-\mathcal{L}_{\text{MTP}} = \frac{\lambda}{D}\sum_{k = 1}^{D}\mathcal{L}_{\text{MTP}}^{k}\quad\quad(4)
+\mathcal{L}_{\text{MTP}} = \frac{\lambda}{D}\sum_{k = 1}^{D}\mathcal{L}_{\text{MTP}}^{k}
 $$
 
 此处 $\lambda$ 为权重超参数，在 DeepSeek-V3 的训练过程中，前 10T Token 设置为 0.3，后续 4.8T Token 调整为 0.1。通过这种设计，每个输入位置在训练过程中产生 $D$ 个独立的监督信号，显著提升了梯度的信息密度与训练效率。
 
-更为重要的是，MTP 目标函数通过强制模型同时优化当前表示对未来多个位置的预测能力，**增强了模型表示的预规划特性**。具体而言，主模型在处理第 $i$ 个词元时生成的隐藏状态，不仅要满足对 $t_{i + 1}$ 的即时预测需求，还需编码足够的信息以支持 MTP 模块对 $t_{i + 2},...,t_{i + D}$ 的准确预测。这种多任务优化压力促使模型学习更具前瞻性的特征表示，即在当前位置“提前”构建对未来序列内容的预判能力。实验表明，这种预规划机制尤其在数学推理与代码生成等需要多步逻辑连贯的任务中表现出显著优势，模型能够生成更具结构一致性的长序列输出。
+更为重要的是，MTP 目标函数通过强制模型同时优化当前表示对未来多个位置的预测能力，**增强了模型表示的预规划特性**。具体而言，主模型在处理第 $i$ 个词元时生成的隐藏状态，不仅要满足对 $t_{i + 1}$ 的即时预测需求，还需编码足够的信息以支持 MTP 模块对 $t_{i + 2},t_{i + 3},...,t_{i + D}$ 的准确预测。这种多任务优化压力促使模型学习更具前瞻性的特征表示，即在当前位置“提前”构建对未来序列内容的预判能力。实验表明，这种预规划机制尤其在数学推理与代码生成等需要多步逻辑连贯的任务中表现出显著优势，模型能够生成更具结构一致性的长序列输出。
 
 #### 4. MTP在推理阶段的双重角色
 
@@ -944,7 +944,7 @@ MTP 模块在训练阶段作为辅助优化目标，而在推理阶段则展现�
 ### 2.4.2 DeepSeek-R1 深度思考模型的训练过程
 
 DeepSeek-R1 的诞生标志着大语言模型训练范式的一次重要转移。在传统的推理能力增强路径中，监督微调通常被视为不可或缺的前置步骤。开发者需要收集大量标注好的思维链（Chain-of-Thought, CoT）数据，先让模型学会“按部就班”地展示推理过程，再引入强化学习进行微调。然而，这一范式不仅依赖昂贵的人工标注，还可能限制模型的探索空间——模型容易被“教会”的固定模式所束缚，难以突破人类标注者的认知边界。  
-DeepSeek 采用了一种以强化学习为核心、辅以多阶段渐进式训练的技术路线。该路线首先通过纯强化学习验证了模型自我演化推理能力的可行性（即DeepSeek-R1-Zero），进而在此基础上引入冷启动数据与多阶段训练策略，最终形成了既具备强推理能力又符合人类阅读习惯的DeepSeek-R1模型。以下将从算法机制、训练流程与工程实践三个维度，系统阐述该模型的完整训练过程。
+DeepSeek 采用了一种以强化学习为核心、辅以多阶段渐进式训练的技术路线。该路线首先通过纯强化学习验证了模型自我演化推理能力的可行性（DeepSeek-R1-Zero），进而在此基础上引入冷启动数据与多阶段训练策略，最终形成了既具备强推理能力又符合人类阅读习惯的DeepSeek-R1模型。以下将从算法机制、训练流程与工程实践三个维度，系统阐述该模型的完整训练过程。
 
 #### 1. DeepSeek-R1-Zero 的纯强化学习训练与思维链的涌现
 
@@ -983,7 +983,7 @@ GRPO 的核心创新在于**彻底摒弃独立的评论模型**，转而利用�
 GRPO 的优化目标建立在 PPO 的裁剪（Clipped）替代目标之上，但通过组内归一化机制重构了优势估计方式。其完整目标函数如下：
 
 $$
-J_{\text{GRPO}}(\theta) = \mathbb{E}_{q \sim P(Q),\{ o_{i}\}_{i = 1}^{G} \sim \pi_{\theta_{\text{old}}}(O|q)}\left\lbrack \frac{1}{G}\sum_{i = 1}^{G}\left( \min\left( r_{i}(\theta)A_{i},\text{clip}(r_{i}(\theta),1 - \varepsilon,1 + \varepsilon)A_{i} \right) - \beta D_{\text{KL}}(\pi_{\theta} \parallel \pi_{\text{ref}}) \right) \right\rbrack\quad\quad(5)
+J_{\text{GRPO}}(\theta) = \mathbb{E}_{q \sim P(Q),\{ o_{i}\}_{i = 1}^{G} \sim \pi_{\theta_{\text{old}}}(O|q)}\left\lbrack \frac{1}{G}\sum_{i = 1}^{G}\left( \min\left( r_{i}(\theta)A_{i},\text{clip}(r_{i}(\theta),1 - \varepsilon,1 + \varepsilon)A_{i} \right) - \beta D_{\text{KL}}(\pi_{\theta} \parallel \pi_{\text{ref}}) \right) \right\rbrack
 $$
 
 其中，
@@ -1002,20 +1002,20 @@ $$
 
 - $\pi_{\text{ref}}$：参考策略，通常为初始的 SFT 模型或基座模型，用于锚定优化方向。
 
-“组内相对优势估计”是 GRPO 区别于 PPO 的核心机制。对于每个问题 $q$，算法首先采样 $G$ 个候选响应 $\{ o_{1},\ldots,o_{G}\}$，并通过奖励模型（或规则验证器）获得对应的奖励值 $\{ r_{1},\ldots,r_{G}\}$。第 $i$ 个响应的优势 $A_{i}$ 通过组内归一化计算：
+“组内相对优势估计”是 GRPO 区别于 PPO 的核心机制。对于每个问题 $q$，算法首先采样 $G$ 个候选响应 $\{ o_{1},o_{2},\ldots,o_{G}\}$，并通过奖励模型（或规则验证器）获得对应的奖励值 $\{ r_{1},r_{2},\ldots,r_{G}\}$。第 $i$ 个响应的优势 $A_{i}$ 通过组内归一化计算：
 
 $$
-A_{i} = \frac{r_{i} - \text{mean}(\{ r_{1},r_{2},\cdots,r_{G}\})}{\text{std}(\{ r_{1},r_{2},\cdots,r_{G}\})}\quad\quad(6)
+A_{i} = \frac{r_{i} - \text{mean}(\{ r_{1},r_{2},\cdots,r_{G}\})}{\text{std}(\{ r_{1},r_{2},\cdots,r_{G}\})}
 $$
 
 该估计量具有明确的统计意义：分子表示当前响应相对于组内平均表现的偏差，分母为标准差归一化，确保优势值具有零均值和单位方差（近似），从而消除不同问题间绝对奖励尺度的差异，稳定学习率。与 PPO 中基于时序差分（TD Learning）或广义优势估计（GAE）的近似方法相比，GRPO 的优势估计无需额外的价值网络参数，且对稀疏奖励场景具有天然适应性——只要组内存在奖励差异，即可产生有效的梯度信号。
 
 **（3）KL 散度约束与训练稳定性**
 
-为防止强化学习过程中策略模型过度优化（Over-optimization）奖励信号而偏离原始语言模型分布（即奖励黑客或模式崩溃），GRPO 引入了基于 KL 散度的正则项。其具体计算采用以下无偏估计形式：
+为防止强化学习过程中策略模型过度优化（Over-optimization）奖励信号而偏离原始语言模型分布（奖励黑客或模式崩溃），GRPO 引入了基于 KL 散度的正则项。其具体计算采用以下无偏估计形式：
 
 $$
-D_{\text{KL}}(\pi_{\theta} \parallel \pi_{\text{ref}}) = \frac{\pi_{\text{ref}}(o_{i}|q)}{\pi_{\theta}(o_{i}|q)} - \log\frac{\pi_{\text{ref}}(o_{i}|q)}{\pi_{\theta}(o_{i}|q)} - 1\quad\quad(7)
+D_{\text{KL}}(\pi_{\theta} \parallel \pi_{\text{ref}}) = \frac{\pi_{\text{ref}}(o_{i}|q)}{\pi_{\theta}(o_{i}|q)} - \log\frac{\pi_{\text{ref}}(o_{i}|q)}{\pi_{\theta}(o_{i}|q)} - 1
 $$
 
 该式是 KL 散度 $D_{\text{KL}}(P \parallel Q) = \sum P\log\frac{P}{Q}$ 的等价变换，通过比率 $\frac{\pi_{\text{ref}}}{\pi_{\theta}}$ 的计算，避免了直接计算对数概率差分可能导致的数值不稳定。在实现中，该正则项与策略目标共同优化，系数 $\beta$ 通常设置为一个较小值（如 0.01 至 0.1 量级），在探索与稳定性之间取得平衡。
@@ -1035,7 +1035,7 @@ GRPO 的完整训练流程可形式化描述如下：
 - 对于格式要求，检查 `<think>` 与 `</think>` 标签的正确使用。  
   奖励通常为二元（0 或 1）或分等级（如部分通过的分数）。
 
-  3）**组内归一化（Group Normalization）**：对每组 $G$ 个奖励值计算算术平均值 $\mu = \frac{1}{G}\sum_{j = 1}^{G}r_{j}$ 与标准差 $\sigma = \sqrt{\frac{1}{G}\sum_{j = 1}^{G}(r_{j} - \mu)^{2}}$，进而计算各响应的优势值 $A_{i} = (r_{i} - \mu)/\sigma$。当 $\sigma = 0$（即所有响应奖励相同）时，该组不产生策略梯度。
+  3）**组内归一化（Group Normalization）**：对每组 $G$ 个奖励值计算算术平均值 $\mu = \frac{1}{G}\sum_{j = 1}^{G}r_{j}$ 与标准差 $\sigma = \sqrt{\frac{1}{G}\sum_{j = 1}^{G}(r_{j} - \mu)^{2}}$，进而计算各响应的优势值 $A_{i} = (r_{i} - \mu)/\sigma$。当 $\sigma = 0$（所有响应奖励相同）时，该组不产生策略梯度。
 
   4）**策略更新（Policy Update）**：
 
@@ -1185,7 +1185,7 @@ DeepSeek 团队在早期尝试构建 PRM 时，遭遇了三个难以克服的工
 
 **（2）蒙特卡洛树搜索（MCTS）的计算陷阱**
 
-受 AlphaGo 成功的启发，将 MCTS 引入大模型推理（即在生成每个 Token 或片段时进行搜索和剪枝）一直是学术界的热门方向。DeepSeek 团队曾尝试在训练中集成 MCTS，通过预演未来的多种可能性来提升当前的生成质量。
+受 AlphaGo 成功的启发，将 MCTS 引入大模型推理（在生成每个 Token 或片段时进行搜索和剪枝）一直是学术界的热门方向。DeepSeek 团队曾尝试在训练中集成 MCTS，通过预演未来的多种可能性来提升当前的生成质量。
 
 然而，大语言模型的搜索空间与围棋截然不同：
 
@@ -1305,7 +1305,7 @@ DeepSeek-V3.2 的双模式架构建立在统一的稀疏注意力网络（DSA）
 GRPO 的目标函数在思维模式中进行了针对性修改：
 
 $$
-\mathcal{L}_{\text{GRPO}}^{\text{thinking}} = \mathbb{E}\left\lbrack \frac{1}{G}\sum_{i = 1}^{G}\frac{1}{|o_{i}|}\sum_{t = 1}^{|o_{i}|}\min\left( r_{i,t}{\widehat{A}}_{i,t},\text{clip}(r_{i,t},1 - \varepsilon,1 + \varepsilon){\widehat{A}}_{i,t} \right) - \beta D_{\text{KL}}(\pi_{\theta} \parallel \pi_{\text{ref}}) \right\rbrack - \lambda \cdot \text{Length}(o_{i})\quad\quad(8)
+\mathcal{L}_{\text{GRPO}}^{\text{thinking}} = \mathbb{E}\left\lbrack \frac{1}{G}\sum_{i = 1}^{G}\frac{1}{|o_{i}|}\sum_{t = 1}^{|o_{i}|}\min\left( r_{i,t}{\widehat{A}}_{i,t},\text{clip}(r_{i,t},1 - \varepsilon,1 + \varepsilon){\widehat{A}}_{i,t} \right) - \beta D_{\text{KL}}(\pi_{\theta} \parallel \pi_{\text{ref}}) \right\rbrack - \lambda \cdot \text{Length}(o_{i})
 $$
 
 （该式为示意性目标；V3.2 原文中长度惩罚通过奖励项实现，并非目标函数中的显式项。）
@@ -1561,7 +1561,7 @@ V4 的 CSA/HCA 是 NSA 的工程落地——从 27B 扩展到 1.6T，从三分�
 
 CSA 的核心操作是将每 $m = 4$ 条连续的 KV 潜向量压缩为 1 条，通过学习的加权池化实现。
 
-设输入序列的隐藏状态为 $\mathbfit{H} = [\mathbfit{h}_1, \mathbfit{h}_2, \ldots, \mathbfit{h}_N]^\top \in \mathbb{R}^{N \times d}$。将序列按步长 $m$ 分为 $\lfloor N/m \rfloor$ 个块，第 $i$ 个块包含 Token $\{(i-1)m+1, \ldots, im\}$。
+设输入序列的隐藏状态为 $\mathbfit{H} = [\mathbfit{h}_1, \mathbfit{h}_2, \ldots, \mathbfit{h}_N]^\top \in \mathbb{R}^{N \times d}$。将序列按步长 $m$ 分为 $\lfloor N/m \rfloor$ 个块，第 $i$ 个块包含 Token $\{(i-1)m+1, (i-1)m+2, \ldots, im\}$。
 
 压缩器（Compressor）对块内的 $m$ 条 Token 执行两步操作：
 
@@ -1582,7 +1582,7 @@ $$
 对于第 $i$ 个压缩块，令前一块的 $m$ 个 Token 提供 $b$ 角色贡献，当前块的 $m$ 个 Token 提供 $a$ 角色贡献。将 $2m$ 个权重拼接后做 softmax：
 
 $$
-[\mathbfit{S}_1^a, \ldots, \mathbfit{S}_m^a;\; \mathbfit{S}_1^b, \ldots, \mathbfit{S}_m^b] = \text{Softmax}_{\text{row}}\!\left([\mathbfit{Z}_1^a + \mathbfit{B}_1^a, \ldots, \mathbfit{Z}_m^a + \mathbfit{B}_m^a;\; \mathbfit{Z}_1^b + \mathbfit{B}_1^b, \ldots, \mathbfit{Z}_m^b + \mathbfit{B}_m^b]\right)
+[\mathbfit{S}_1^a, \mathbfit{S}_2^a, \ldots, \mathbfit{S}_m^a;\; \mathbfit{S}_1^b, \mathbfit{S}_2^b, \ldots, \mathbfit{S}_m^b] = \text{Softmax}_{\text{row}}\!\left([\mathbfit{Z}_1^a + \mathbfit{B}_1^a, \mathbfit{Z}_2^a + \mathbfit{B}_2^a, \ldots, \mathbfit{Z}_m^a + \mathbfit{B}_m^a;\; \mathbfit{Z}_1^b + \mathbfit{B}_1^b, \mathbfit{Z}_2^b + \mathbfit{B}_2^b, \ldots, \mathbfit{Z}_m^b + \mathbfit{B}_m^b]\right)
 $$
 
 其中 $\mathbfit{B}_j^a, \mathbfit{B}_j^b$ 为可学习的位置偏置（Absolute Positional Embedding），编码块内位置信息。
@@ -1625,7 +1625,7 @@ $$
 $$
 
 $$
-[w_t^{I,1}; \ldots; w_t^{I,n_h^I}] = \mathbfit{h}_t \mathbfit{W}^{w}
+[w_t^{I,1}; w_t^{I,2}; \ldots; w_t^{I,n_h^I}] = \mathbfit{h}_t \mathbfit{W}^{w}
 $$
 
 $$
@@ -1714,7 +1714,7 @@ $$
 $n_h = 128$ 个注意力头的输出不做全连接投影，而是分为 $g = 16$ 组，每组 8 个头共享一个输出投影矩阵：
 
 $$
-\mathbfit{o}_{t,i}^{G'} = \mathbfit{o}_{t,i}^{G} \mathbfit{W}_{i}^{G}, \quad \widehat{\mathbfit{o}}_{t} = \text{Concat}(\mathbfit{o}_{t,1}^{G'}, \ldots, \mathbfit{o}_{t,g}^{G'}) \mathbfit{W}^{O}
+\mathbfit{o}_{t,i}^{G'} = \mathbfit{o}_{t,i}^{G} \mathbfit{W}_{i}^{G}, \quad \widehat{\mathbfit{o}}_{t} = \text{Concat}(\mathbfit{o}_{t,1}^{G'}, \mathbfit{o}_{t,2}^{G'}, \ldots, \mathbfit{o}_{t,g}^{G'}) \mathbfit{W}^{O}
 $$
 
 其中 $\mathbfit{o}_{t,i}^{G} \in \mathbb{R}^{8 \times c}$ 为第 $i$ 组 8 个头输出的拼接（$c = 512$ 为每头维度），$\mathbfit{W}_{i}^{G} \in \mathbb{R}^{(8 \times c) \times d_g}$ 为该组的输出投影矩阵（$d_g = 1024$ 为每组输出维度）。16 组中间输出 $\mathbfit{o}_{t,i}^{G'}$ 拼接为 $16 \times 1024 = 16384$ 维，随后再经 $\mathbfit{W}^{O}$ 投影回隐藏维度 $d = 7168$。分组投影减少第一段输出投影的计算量，同时保留组内头间的交互能力。
@@ -1952,11 +1952,11 @@ $$
 双随机矩阵（Doubly Stochastic Matrix）定义为满足以下条件的非负方阵 $\mathbfit{P} \in \mathbb{R}^{n \times n}$：
 
 $$
-\sum_{j=1}^{n} P_{ij} = 1, \quad \forall i \in \{1, \ldots, n\}
+\sum_{j=1}^{n} P_{ij} = 1, \quad \forall i \in \{1, 2, \ldots, n\}
 $$
 
 $$
-\sum_{i=1}^{n} P_{ij} = 1, \quad \forall j \in \{1, \ldots, n\}
+\sum_{i=1}^{n} P_{ij} = 1, \quad \forall j \in \{1, 2, \ldots, n\}
 $$
 
 $$
@@ -1983,7 +1983,7 @@ $\mathcal{B}_n$ 具有以下保证信号传播稳定性的关键性质：
 
 **性质 4（总和保持与非扩张）**：双随机矩阵的行和与列和均为 1，信号在路径间的重新分配保持总和不变（均值保持），且谱范数不超过 1，即在 $l_2$ 范数下不扩张。
 
-上述性质的组合保证了：无论网络深度如何增加、训练如何推进，残差映射 $B_l$ 这条会跨层累乘的通道不会指数级放大信号。
+上述性质的组合保证了：无论网络深度如何增加、训练如何推进，残差映射 $\mathbfit{B}_l$ 这条会跨层累乘的通道不会指数级放大信号。
 
 #### 3. Sinkhorn-Knopp 投影算法
 
@@ -1997,7 +1997,7 @@ mHC 采用 Sinkhorn-Knopp 迭代算法[^sk]将任意非负矩阵投影至双随�
 **输出**：双随机矩阵 $\mathbfit{P} \in \mathcal{B}_n$
 
 1. 初始化：$\mathbfit{P}^{(0)} = \mathbfit{M}$
-2. **for** $t = 1, \ldots, T$ **do**
+2. **for** $t = 1, 2, \ldots, T$ **do**
    - 行归一化：$P^{(t-\frac{1}{2})}_{ij} = P^{(t-1)}_{ij} \big/ \sum_{k=1}^n P^{(t-1)}_{ik}$
    - 列归一化：$P^{(t)}_{ij} = P^{(t-\frac{1}{2})}_{ij} \big/ \sum_{k=1}^n P^{(t-\frac{1}{2})}_{kj}$
 3. **return** $\mathbfit{P}^{(T)}$
@@ -2081,7 +2081,7 @@ $$
 
 由性质 2（谱范数有界），$\|\mathbfit{G}_L\|_2 \leq 1$。
 
-因此，仅就残差映射链 $\mathbfit{B}_1, \ldots, \mathbfit{B}_L$ 而言，无论网络深度 $L$ 取何值：
+因此，仅就残差映射链 $\mathbfit{B}_1, \mathbfit{B}_2, \ldots, \mathbfit{B}_L$ 而言，无论网络深度 $L$ 取何值：
 
 $$
 \|\mathbfit{G}_L \mathbfit{x}\|_2 \leq \|\mathbfit{G}_L\|_2 \cdot \|\mathbfit{x}\|_2 \leq \|\mathbfit{x}\|_2
@@ -2097,39 +2097,39 @@ $$
 
 **V4 的三组映射及其约束**
 
-V4 将 mHC 的连接权重分解为三组映射 $A_l, B_l, C_l$，每组映射由静态偏置（input-independent）和动态分量（input-dependent）组成。动态分量通过将展平并归一化的残差状态 $\hat{X}_l$ 投影得到，静态偏置在训练初期通过小值门控因子 $\alpha$ 初始化：
+V4 将 mHC 的连接权重分解为三组映射 $\mathbfit{A}_l, \mathbfit{B}_l, \mathbfit{C}_l$，每组映射由静态偏置（input-independent）和动态分量（input-dependent）组成。动态分量通过将展平并归一化的残差状态 $\hat{\mathbfit{X}}_l$ 投影得到，静态偏置在训练初期通过小值门控因子 $\alpha$ 初始化：
 
 $$
-\tilde{A}_l = \alpha_l^{\text{pre}} \cdot (\hat{X}_l W_l^{\text{pre}}) + S_l^{\text{pre}}
-$$
-
-$$
-\tilde{B}_l = \alpha_l^{\text{res}} \cdot \text{Mat}(\hat{X}_l W_l^{\text{res}}) + S_l^{\text{res}}
+\tilde{\mathbfit{A}}_l = \alpha_l^{\text{pre}} \cdot (\hat{\mathbfit{X}}_l \mathbfit{W}_l^{\text{pre}}) + \mathbfit{S}_l^{\text{pre}}
 $$
 
 $$
-\tilde{C}_l = \alpha_l^{\text{post}} \cdot (\hat{X}_l W_l^{\text{post}})^T + S_l^{\text{post}}
+\tilde{\mathbfit{B}}_l = \alpha_l^{\text{res}} \cdot \text{Mat}(\hat{\mathbfit{X}}_l \mathbfit{W}_l^{\text{res}}) + \mathbfit{S}_l^{\text{res}}
+$$
+
+$$
+\tilde{\mathbfit{C}}_l = \alpha_l^{\text{post}} \cdot (\hat{\mathbfit{X}}_l \mathbfit{W}_l^{\text{post}})^T + \mathbfit{S}_l^{\text{post}}
 $$
 
 其中 $\text{Mat}(\cdot)$ 将 $1 \times n_{\text{hc}}^2$ 向量重塑为 $n_{\text{hc}} \times n_{\text{hc}}$ 矩阵。
 
 三组映射分别施加不同的约束以保证数值稳定性：
 
-- **输入映射**：$A_l = \sigma(\tilde{A}_l)$，Sigmoid 约束到 $[0, 1]$
-- **输出映射**：$C_l = 2\sigma(\tilde{C}_l)$，约束到 $[0, 2]$
-- **残差映射**：$B_l = \text{Sinkhorn-Knopp}(\exp(\tilde{B}_l), T=20)$，投影到双随机矩阵流形
+- **输入映射**：$\mathbfit{A}_l = \sigma(\tilde{\mathbfit{A}}_l)$，Sigmoid 约束到 $[0, 1]$
+- **输出映射**：$\mathbfit{C}_l = 2\sigma(\tilde{\mathbfit{C}}_l)$，约束到 $[0, 2]$
+- **残差映射**：$\mathbfit{B}_l = \text{Sinkhorn-Knopp}(\exp(\tilde{\mathbfit{B}}_l), T=20)$，投影到双随机矩阵流形
 
-输入和输出映射通过 Sigmoid 保证非负有界，避免信号反转。残差映射是信号增益控制的核心——Sinkhorn-Knopp 投影保证 $\|B_l\|_2 \leq 1$，从而使 $L$ 层的复合增益 $\prod B_l$ 不发散。
+输入和输出映射通过 Sigmoid 保证非负有界，避免信号反转。残差映射是信号增益控制的核心——Sinkhorn-Knopp 投影保证 $\|\mathbfit{B}_l\|_2 \leq 1$，从而使 $L$ 层的复合增益 $\prod \mathbfit{B}_l$ 不发散。
 
 **前向传播**
 
 V4 的 mHC 前向传播公式为：
 
 $$
-X_{l+1} = B_l X_l + C_l \mathcal{F}_l(A_l X_l)
+\mathbfit{X}_{l+1} = \mathbfit{B}_l \mathbfit{X}_l + \mathbfit{C}_l \mathcal{F}_l(\mathbfit{A}_l \mathbfit{X}_l)
 $$
 
-其中 $\mathcal{F}_l$ 为第 $l$ 层的 Transformer 子层（注意力或 MoE），$X_l \in \mathbb{R}^{n_{\text{hc}} \times d}$ 为展宽的残差状态。注意力层和 FFN 层各有独立的一组 $(A_l, B_l, C_l)$ 参数。
+其中 $\mathcal{F}_l$ 为第 $l$ 层的 Transformer 子层（注意力或 MoE），$\mathbfit{X}_l \in \mathbb{R}^{n_{\text{hc}} \times d}$ 为展宽的残差状态。注意力层和 FFN 层各有独立的一组 $(\mathbfit{A}_l, \mathbfit{B}_l, \mathbfit{C}_l)$ 参数。
 
 **V4 的具体配置**
 
@@ -2174,7 +2174,7 @@ HC 与 mHC 的信号增益特性对比如表2-17 所示。
 | HC（无约束） | 1 ~ 7 | $10^3 \sim 10^5$ | 12,000 步后崩溃 |
 | mHC（双随机约束） | 受控（残差映射谱范数 ≤ 1） | 约 1.6（论文实验口径） | 全程稳定 |
 
-在论文实验口径下，整体信号增益从 $10^3$~$10^5$ 压缩至约 1.6，降幅达三个数量级。这里的 1.6 不是说单个双随机残差矩阵的谱范数超过 1，而是包含完整层结构后的经验测量结果；mHC 真正锁住的是会跨层累乘的残差映射 $B_l$。
+在论文实验口径下，整体信号增益从 $10^3$~$10^5$ 压缩至约 1.6，降幅达三个数量级。这里的 1.6 不是说单个双随机残差矩阵的谱范数超过 1，而是包含完整层结构后的经验测量结果；mHC 真正锁住的是会跨层累乘的残差映射 $\mathbfit{B}_l$。
 
 训练过程中的具体表现差异：
 - **HC**：约 12,000 步出现突发损失飙升，梯度范数与损失高度相关振荡，不可恢复
@@ -2341,18 +2341,18 @@ $$
 **SGD**。SGD（随机梯度下降，Stochastic Gradient Descent）是最基本的参数更新规则[^sgdref]：
 
 $$
-W_t = W_{t-1} - \eta \nabla_W L_t
+\mathbfit{W}_t = \mathbfit{W}_{t-1} - \eta \nabla_{\mathbfit{W}} L_t
 $$
 
-梯度 $\nabla_W L_t$ 指向损失上升最快的方向，取负号即为下降方向。SGD 的优点是简单直接，缺点是：（1）所有参数共用同一学习率；（2）对单步梯度噪声敏感，更新方向容易振荡。
+梯度 $\nabla_{\mathbfit{W}} L_t$ 指向损失上升最快的方向，取负号即为下降方向。SGD 的优点是简单直接，缺点是：（1）所有参数共用同一学习率；（2）对单步梯度噪声敏感，更新方向容易振荡。
 
 **动量法**。Polyak 提出的重球（heavy ball）方法[^polyak]引入动量缓冲区，对历史梯度做指数移动平均：
 
 $$
-v_t = \mu v_{t-1} + \nabla_W L_t
+\mathbfit{v}_t = \mu \mathbfit{v}_{t-1} + \nabla_{\mathbfit{W}} L_t
 $$
 $$
-W_t = W_{t-1} - \eta v_t
+\mathbfit{W}_t = \mathbfit{W}_{t-1} - \eta \mathbfit{v}_t
 $$
 
 其中 $\mu \in [0, 1)$ 为动量系数（通常取 0.9）。动量法保留历史方向信息，使更新方向更平滑，不易被单次噪声带偏。
@@ -2362,26 +2362,26 @@ Nesterov 进一步改进为 Nesterov Accelerated Gradient（NAG）[^nesterov]，
 **Adam：逐元素自适应学习率**。Adam[^adam] 为每个参数维护两个统计量：
 
 $$
-m_t = \beta_1 m_{t-1} + (1 - \beta_1) g_t \quad \text{（一阶矩估计：梯度均值）}
+\mathbfit{m}_t = \beta_1 \mathbfit{m}_{t-1} + (1 - \beta_1) \mathbfit{g}_t \quad \text{（一阶矩估计：梯度均值）}
 $$
 $$
-v_t = \beta_2 v_{t-1} + (1 - \beta_2) g_t^2 \quad \text{（二阶矩估计：梯度均方值）}
+\mathbfit{v}_t = \beta_2 \mathbfit{v}_{t-1} + (1 - \beta_2) \mathbfit{g}_t^2 \quad \text{（二阶矩估计：梯度均方值）}
 $$
 
 经偏差修正后，更新规则为：
 
 $$
-W_t = W_{t-1} - \eta \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon}
+\mathbfit{W}_t = \mathbfit{W}_{t-1} - \eta \frac{\hat{\mathbfit{m}}_t}{\sqrt{\hat{\mathbfit{v}}_t} + \epsilon}
 $$
 
-其中 $\hat{m}_t = m_t / (1 - \beta_1^t)$，$\hat{v}_t = v_t / (1 - \beta_2^t)$。
+其中 $\hat{\mathbfit{m}}_t = \mathbfit{m}_t / (1 - \beta_1^t)$，$\hat{\mathbfit{v}}_t = \mathbfit{v}_t / (1 - \beta_2^t)$。
 
-核心机制：分母 $\sqrt{\hat{v}_t}$ 对梯度波动大的参数施加更大的抑制——梯度稳定的参数步子大，梯度抖动的参数步子小。所有操作均为逐元素（element-wise），即矩阵中每个标量参数独立计算自己的动量和步长。
+核心机制：分母 $\sqrt{\hat{\mathbfit{v}}_t}$ 对梯度波动大的参数施加更大的抑制——梯度稳定的参数步子大，梯度抖动的参数步子小。所有操作均为逐元素（element-wise），即矩阵中每个标量参数独立计算自己的动量和步长。
 
 **AdamW：解耦权重衰减**。Loshchilov 与 Hutter 指出[^adamw]，原版 Adam 将权重衰减（weight decay）混入梯度再经过自适应步长调制，导致正则化效果被扭曲。AdamW 将权重衰减从自适应更新中解耦：
 
 $$
-W_t = W_{t-1} \cdot (1 - \eta\lambda) - \eta \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon}
+\mathbfit{W}_t = \mathbfit{W}_{t-1} \cdot (1 - \eta\lambda) - \eta \frac{\hat{\mathbfit{m}}_t}{\sqrt{\hat{\mathbfit{v}}_t} + \epsilon}
 $$
 
 其中 $\lambda$ 为权重衰减系数。解耦后，每个参数被拉向零的力度均匀一致，不受自适应步长影响。
@@ -2560,7 +2560,7 @@ Moonshot 在 Kimi K2 训练中（标准 Transformer 架构，无特殊残差设�
 
 DeepSeek V4 同时使用 Muon 和 HC（多路残差连接），叠加了两个数值风险。V4 的策略是从架构端一次性解决：
 
-- **mHC**：用双随机矩阵约束保证残差映射 $B_l$ 的谱范数 $\leq 1$，避免 HC 式跨层累乘放大；实验口径下整体信号增益约压到 $\sim 1.6\times$
+- **mHC**：用双随机矩阵约束保证残差映射 $\mathbfit{B}_l$ 的谱范数 $\leq 1$，避免 HC 式跨层累乘放大；实验口径下整体信号增益约压到 $\sim 1.6\times$
 - **RMSNorm on Q/K**：直接控制注意力分数的数值范围
 
 三种方案的对比如表2-24 所示。

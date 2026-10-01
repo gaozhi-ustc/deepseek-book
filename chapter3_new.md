@@ -79,7 +79,7 @@ FP8 矩阵乘法的精度损失主要来源于中间累加结果的精度不足�
 
 $$\mathbfit{C}_{ij} = \sum_{k=1}^{K} \mathbfit{A}_{ik} \cdot \mathbfit{B}_{kj} $$
 
-其中 $\mathbfit{C}_{ij}$ 表示输出矩阵第 $i$ 行第 $j$ 列的元素，$\mathbfit{A}_{ik}$ 和 $\mathbfit{B}_{kj}$ 分别为输入矩阵 $\mathbfit{A}$ 和 $\mathbfit{B}$ 的对应元素，$k$ 为求和遍历的索引（从 1 到 $K$），$K$ 为矩阵 $\mathbfit{A}$ 的列数（即内维度），$\mathbfit{C} \in \mathbb{R}^{M \times N}$ 为输出矩阵。在 FP8 实现中，Tensor Core 执行的矩阵乘累加（Matrix Multiply-Accumulate, MMA）操作以 FP8 精度进行乘法，以 FP32 精度进行累加。设 Tensor Core 每次处理的子矩阵块大小为 $M_{\mathrm{tile}} \times K_{\mathrm{tile}} \times N_{\mathrm{tile}}$，则二级累加机制可表述为：
+其中 $\mathbfit{C}_{ij}$ 表示输出矩阵第 $i$ 行第 $j$ 列的元素，$\mathbfit{A}_{ik}$ 和 $\mathbfit{B}_{kj}$ 分别为输入矩阵 $\mathbfit{A}$ 和 $\mathbfit{B}$ 的对应元素，$k$ 为求和遍历的索引（从 1 到 $K$），$K$ 为矩阵 $\mathbfit{A}$ 的列数（内维度），$\mathbfit{C} \in \mathbb{R}^{M \times N}$ 为输出矩阵。在 FP8 实现中，Tensor Core 执行的矩阵乘累加（Matrix Multiply-Accumulate, MMA）操作以 FP8 精度进行乘法，以 FP32 精度进行累加。设 Tensor Core 每次处理的子矩阵块大小为 $M_{\mathrm{tile}} \times K_{\mathrm{tile}} \times N_{\mathrm{tile}}$，则二级累加机制可表述为：
 
 $$\mathbfit{C}^{(l)}_{ij} = \text{FP32}\left(\sum_{k=1}^{K_{\mathrm{tile}}} \text{FP8}(\mathbfit{A}_{ik}) \cdot \text{FP8}(\mathbfit{B}_{kj})\right) $$
 
@@ -841,13 +841,13 @@ MoE 层的前向传播涉及路由计算、Token 分发（Dispatch）、专家�
 
 **(1) MoE 前向传播流程**
 
-MoE 层的前向传播包含路由计算、Dispatch、专家计算、Combine 四个核心步骤。给定输入 $X \in \mathbb{R}^{B \times S \times D}$（其中 $B$ 为批大小，$S$ 为序列长度，$D$ 为隐藏维度），路由网络首先计算门控分数 $G = \text{softmax}(X W_{\mathrm{gate}})$，其中 $G \in \mathbb{R}^{B \times S \times E}$，$E$ 为专家总数。通过 Top-K 选择确定每个 token 激活的 $K$ 个专家及其权重。
+MoE 层的前向传播包含路由计算、Dispatch、专家计算、Combine 四个核心步骤。给定输入 $\mathbfit{X} \in \mathbb{R}^{B \times S \times D}$（其中 $B$ 为批大小，$S$ 为序列长度，$D$ 为隐藏维度），路由网络首先计算门控分数 $\mathbfit{G} = \text{softmax}(\mathbfit{X} \mathbfit{W}_{\mathrm{gate}})$，其中 $\mathbfit{G} \in \mathbb{R}^{B \times S \times E}$，$E$ 为专家总数。通过 Top-K 选择确定每个 token 激活的 $K$ 个专家及其权重。
 
-Dispatch 阶段将 token 按路由结果发送至持有目标专家的 GPU。设专家并行度为 $N_{\mathrm{ep}}$，每个 GPU 持有 $E / N_{\mathrm{ep}}$ 个专家。对于 token $t$ 选择的专家集合 $\{e_1, e_2, \ldots, e_K\}$，需将 $X[t]$ 发送至对应的 $K$ 个 GPU（可能存在重复）。该过程实现了从 token-wise 分布到 expert-wise 分布的转换。
+Dispatch 阶段将 token 按路由结果发送至持有目标专家的 GPU。设专家并行度为 $N_{\mathrm{ep}}$，每个 GPU 持有 $E / N_{\mathrm{ep}}$ 个专家。对于 token $t$ 选择的专家集合 $\{e_1, e_2, \ldots, e_K\}$，需将 $\mathbfit{X}[t]$ 发送至对应的 $K$ 个 GPU（可能存在重复）。该过程实现了从 token-wise 分布到 expert-wise 分布的转换。
 
-专家计算阶段在每个 GPU 上独立执行。各 GPU 对接收到的 token 按专家索引分组，每个本地专家 $e$ 处理其接收的 token 集合 $T_e$，计算 $Y_e = \text{FFN}_e(T_e)$。该阶段的计算密度高，是 MoE 层的主要算力消耗环节。
+专家计算阶段在每个 GPU 上独立执行。各 GPU 对接收到的 token 按专家索引分组，每个本地专家 $e$ 处理其接收的 token 集合 $\mathbfit{T}_e$，计算 $\mathbfit{Y}_e = \text{FFN}_e(\mathbfit{T}_e)$。该阶段的计算密度高，是 MoE 层的主要算力消耗环节。
 
-Combine 阶段将专家输出按原始 token 索引聚合。对于 token $t$，需从 $K$ 个 GPU 获取对应的专家输出，执行加权求和 $Y[t] = \sum_{k=1}^{K} w_{t,k} \cdot \text{output}_{t,k}$，其中 $w_{t,k}$ 为归一化后的门控权重。该过程实现了从 expert-wise 分布回到 token-wise 分布的转换。
+Combine 阶段将专家输出按原始 token 索引聚合。对于 token $t$，需从 $K$ 个 GPU 获取对应的专家输出，执行加权求和 $\mathbfit{Y}[t] = \sum_{k=1}^{K} w_{t,k} \cdot \text{output}_{t,k}$，其中 $w_{t,k}$ 为归一化后的门控权重。该过程实现了从 expert-wise 分布回到 token-wise 分布的转换。
 
 **(2) Dispatch 与 Combine 通信量分析**
 
@@ -1097,11 +1097,11 @@ EPLB 的核心优化目标可形式化为以下问题：
 给定 $E$ 个逻辑专家、$N$ 个 GPU、$S$ 个物理专家槽位（$S \geq E$），以及各专家的负载预测值 $\{w_1, w_2, ..., w_E\}$。目标是确定：
 
 1. 副本数分配 $\{r_1, r_2, ..., r_E\}$，满足 $\sum_i r_i = S$ 且 $r_i \geq 1$
-2. 物理专家到 GPU 的映射 $\phi: \{1,...,S\} \rightarrow \{1,...,N\}$
+2. 物理专家到 GPU 的映射 $\phi: \{1,2,...,S\} \rightarrow \{1,2,...,N\}$
 
 使得最大 GPU 负载最小化：
 
-$$\min_{\phi, r} \max_{j \in \{1,...,N\}} \sum_{i: j \in \phi_i} \frac{w_i}{r_i} $$
+$$\min_{\phi, r} \max_{j \in \{1,2,...,N\}} \sum_{i: j \in \phi_i} \frac{w_i}{r_i} $$
 
 其中 $\phi_i$ 为专家 $i$ 的所有副本所在的 GPU 集合，$\sum_{i: j \in \phi_i}$ 表示对所有分配到 GPU $j$ 的专家副本求和，$w_i / r_i$ 为专家 $i$ 的负载均摊到其 $r_i$ 个副本后的单副本负载。$\min_{\phi, r}$ 表示在所有可能的映射方案 $\phi$ 和副本分配方案 $r$ 中寻找最优解，$\max_{j}$ 取所有 GPU 中负载最大的值。该问题为 NP-hard 的多处理机调度问题（Multiprocessor Scheduling Problem）的变体。EPLB 采用贪心算法进行近似求解。
 
@@ -1257,7 +1257,7 @@ FlashAttention 优化的是注意力计算过程中临时矩阵的内存效率�
 
 $$\mathbfit{o}_t = \text{Attention}(\mathbfit{q}_t, \mathbfit{K}_{1:t}, \mathbfit{V}_{1:t}) $$
 
-其中 $\mathbfit{o}_t$ 为第 $t$ 个 token 的注意力输出，$\mathbfit{q}_t$ 为第 $t$ 个 token 的查询向量，$\mathbfit{K}_{1:t} = [\mathbfit{k}_1; ...; \mathbfit{k}_t]$，$\mathbfit{V}_{1:t} = [\mathbfit{v}_1; ...; \mathbfit{v}_t]$。
+其中 $\mathbfit{o}_t$ 为第 $t$ 个 token 的注意力输出，$\mathbfit{q}_t$ 为第 $t$ 个 token 的查询向量，$\mathbfit{K}_{1:t} = [\mathbfit{k}_1; \mathbfit{k}_2; ...; \mathbfit{k}_t]$，$\mathbfit{V}_{1:t} = [\mathbfit{v}_1; \mathbfit{v}_2; ...; \mathbfit{v}_t]$。
 
 朴素实现中，每生成一个 token 需重新计算所有历史 token 的 K、V 投影，计算复杂度为 $O(t \cdot d_{\mathrm{model}} \cdot d)$。对于长文本生成，该冗余计算成为性能瓶颈。
 
@@ -1360,9 +1360,9 @@ $$\frac{\partial \mathcal{L}}{\partial \mathbfit{V}} = \mathbfit{P}^T \frac{\par
 
 $$\frac{\partial \mathcal{L}}{\partial \mathbfit{P}} = \frac{\partial \mathcal{L}}{\partial \mathbfit{O}} \mathbfit{V}^T $$
 
-$$\frac{\partial \mathcal{L}}{\partial \mathbfit{S}} = \mathbfit{P} \odot \left( \frac{\partial \mathcal{L}}{\partial \mathbfit{P}} - D \right), \quad D = \text{rowsum}\left( \frac{\partial \mathcal{L}}{\partial \mathbfit{P}} \odot \mathbfit{P} \right) $$
+$$\frac{\partial \mathcal{L}}{\partial \mathbfit{S}} = \mathbfit{P} \odot \left( \frac{\partial \mathcal{L}}{\partial \mathbfit{P}} - \mathbfit{D} \right), \quad \mathbfit{D} = \text{rowsum}\left( \frac{\partial \mathcal{L}}{\partial \mathbfit{P}} \odot \mathbfit{P} \right) $$
 
-其中 $D$ 为按行求和的归一化项。
+其中 $\mathbfit{D}$ 为按行求和的归一化项。
 
 $$\frac{\partial \mathcal{L}}{\partial \mathbfit{Q}} = \tau \frac{\partial \mathcal{L}}{\partial \mathbfit{S}} \mathbfit{K}, \quad \frac{\partial \mathcal{L}}{\partial \mathbfit{K}} = \tau \left(\frac{\partial \mathcal{L}}{\partial \mathbfit{S}}\right)^T \mathbfit{Q} $$
 
@@ -1658,21 +1658,21 @@ Seesaw 解决方案：
 
 维护状态：
 - 运行最大值 $m$（两个 Warp Group 共享）；
-- 输出矩阵 $O_L$（Warp Group 0）和 $O_R$（Warp Group 1）。
+- 输出矩阵 $\mathbfit{O}_L$（Warp Group 0）和 $\mathbfit{O}_R$（Warp Group 1）。
 
-每步处理两个 KV 块 $(K_0, V_0)$ 和 $(K_1, V_1)$：
+每步处理两个 KV 块 $(\mathbfit{K}_0, \mathbfit{V}_0)$ 和 $(\mathbfit{K}_1, \mathbfit{V}_1)$：
 
-1.   [WG0] 计算 $p_0 = q \cdot K_0^T / \text{scale}$
-2.   [WG1] 计算 $p_1 = q \cdot K_1^T / \text{scale}$
-3.   [WG0] 计算 $m_{\text{new}_0} = \max(m, \max(p_0))$, $\text{scale}_0 = \exp(m_{\text{new}_0} - m)$
-4.   [WG0] Softmax: $p_0 \leftarrow \exp(p_0 - m_{\text{new}_0})$
-5.   [WG0] 更新 $O_L \leftarrow O_L \cdot \text{scale}_0 + p_0 \cdot V_{0L}$
-6.   [WG1] 计算 $m_{\text{new}_1} = \max(m, \max(p_1))$, $\text{scale}_1 = \exp(m_{\text{new}_1} - m)$
-7.   [WG1] Softmax: $p_1 \leftarrow \exp(p_1 - m_{\text{new}_1})$
-8.   [WG1] 更新 $O_R \leftarrow O_R \cdot (\text{scale}_0 \cdot \text{scale}_1) + p_1 \cdot V_{1R}$
-9.   [WG0] 缩放 $p_0 \leftarrow p_0 \cdot \text{scale}_1$
-10. [WG1] 更新 $O_R \leftarrow O_R + p_0 \cdot V_{0R}$
-11. [WG0] 更新 $O_L \leftarrow O_L \cdot \text{scale}_1 + p_1 \cdot V_{1L}$
+1.   [WG0] 计算 $\mathbfit{p}_0 = \mathbfit{q} \cdot \mathbfit{K}_0^T / \text{scale}$
+2.   [WG1] 计算 $\mathbfit{p}_1 = \mathbfit{q} \cdot \mathbfit{K}_1^T / \text{scale}$
+3.   [WG0] 计算 $m_{\text{new}_0} = \max(m, \max(\mathbfit{p}_0))$, $\text{scale}_0 = \exp(m_{\text{new}_0} - m)$
+4.   [WG0] Softmax: $\mathbfit{p}_0 \leftarrow \exp(\mathbfit{p}_0 - m_{\text{new}_0})$
+5.   [WG0] 更新 $\mathbfit{O}_L \leftarrow \mathbfit{O}_L \cdot \text{scale}_0 + \mathbfit{p}_0 \cdot \mathbfit{V}_{0L}$
+6.   [WG1] 计算 $m_{\text{new}_1} = \max(m, \max(\mathbfit{p}_1))$, $\text{scale}_1 = \exp(m_{\text{new}_1} - m)$
+7.   [WG1] Softmax: $\mathbfit{p}_1 \leftarrow \exp(\mathbfit{p}_1 - m_{\text{new}_1})$
+8.   [WG1] 更新 $\mathbfit{O}_R \leftarrow \mathbfit{O}_R \cdot (\text{scale}_0 \cdot \text{scale}_1) + \mathbfit{p}_1 \cdot \mathbfit{V}_{1R}$
+9.   [WG0] 缩放 $\mathbfit{p}_0 \leftarrow \mathbfit{p}_0 \cdot \text{scale}_1$
+10. [WG1] 更新 $\mathbfit{O}_R \leftarrow \mathbfit{O}_R + \mathbfit{p}_0 \cdot \mathbfit{V}_{0R}$
+11. [WG0] 更新 $\mathbfit{O}_L \leftarrow \mathbfit{O}_L \cdot \text{scale}_1 + \mathbfit{p}_1 \cdot \mathbfit{V}_{1L}$
 
 该调度使两个 Warp Group 交替执行 CUDA Core（Softmax）和 Tensor Core（GEMM）操作，实现高效重叠。
 
@@ -1775,11 +1775,11 @@ $$J_{\mathrm{PPO}}(\theta) = \mathbb{E}_{(x,y) \sim \pi_{\theta_{\mathrm{old}}}}
 
 其中 $\theta$ 为策略模型参数，$\pi_\theta$ 为策略分布，$x$ 为输入提示，$y$ 为生成的响应，$\epsilon$ 为裁剪参数（通常取 0.2），$r(\theta) = \frac{\pi_\theta(y|x)}{\pi_{\theta_{\mathrm{old}}}(y|x)}$ 为重要性采样比率，$A^{\pi_{\theta_{\mathrm{old}}}}(x,y)$ 为优势函数（上标 $\pi_{\theta_{\mathrm{old}}}$ 表示该优势值在旧策略下计算），通过价值模型估计。这需要额外训练一个与策略模型规模相当的价值模型，导致显存占用翻倍、训练不稳定、计算资源消耗大等问题。
 
-GRPO 的核心改进：完全消除价值模型，使用组内相对奖励估计优势函数。设对于每个提示 $x$，采样 $G$ 个响应 $\{y_1, ..., y_G\}$，GRPO 的优化目标为：
+GRPO 的核心改进：完全消除价值模型，使用组内相对奖励估计优势函数。设对于每个提示 $x$，采样 $G$ 个响应 $\{y_1, y_2, ..., y_G\}$，GRPO 的优化目标为：
 
 $$J_{\mathrm{GRPO}}(\theta) = \mathbb{E}_{x \sim \mathcal{D}, \{y_i\}_{i=1}^G \sim \pi_{\theta_{\mathrm{old}}}(\cdot|x)} \left[ \frac{1}{G} \sum_{i=1}^G \left\{ \min\left( r_i(\theta) \hat{A}_i, \text{clip}(r_i(\theta), 1-\epsilon, 1+\epsilon) \hat{A}_i \right) - \beta D_{\mathrm{KL}}(\pi_\theta \parallel \pi_{\mathrm{ref}}) \right\} \right] $$
 
-其中 $\mathbb{E}_{x \sim \mathcal{D}, \{y_i\}_{i=1}^G \sim \pi_{\theta_{\mathrm{old}}}(\cdot|x)}$ 表示期望运算，下标含义为：$x$ 从数据分布 $\mathcal{D}$ 中采样，$G$ 个响应 $\{y_1, ..., y_G\}$ 从旧策略 $\pi_{\theta_{\mathrm{old}}}$ 中采样。$\mathcal{D}$ 为训练数据分布，$r_i(\theta) = \pi_\theta(y_i|x) / \pi_{\theta_{\mathrm{old}}}(y_i|x)$ 为第 $i$ 个响应的重要性采样比率，$\beta$ 为 KL 正则系数，$\pi_{\mathrm{ref}}$ 为参考策略。组相对优势函数为：
+其中 $\mathbb{E}_{x \sim \mathcal{D}, \{y_i\}_{i=1}^G \sim \pi_{\theta_{\mathrm{old}}}(\cdot|x)}$ 表示期望运算，下标含义为：$x$ 从数据分布 $\mathcal{D}$ 中采样，$G$ 个响应 $\{y_1, y_2, ..., y_G\}$ 从旧策略 $\pi_{\theta_{\mathrm{old}}}$ 中采样。$\mathcal{D}$ 为训练数据分布，$r_i(\theta) = \pi_\theta(y_i|x) / \pi_{\theta_{\mathrm{old}}}(y_i|x)$ 为第 $i$ 个响应的重要性采样比率，$\beta$ 为 KL 正则系数，$\pi_{\mathrm{ref}}$ 为参考策略。组相对优势函数为：
 
 $$\hat{A}_i = \frac{R(x, y_i) - \mu_G}{\sigma_G + \epsilon}, \quad \mu_G = \frac{1}{G}\sum_{i=1}^G R(x, y_i), \quad \sigma_G = \sqrt{\frac{1}{G}\sum_{i=1}^G (R(x, y_i) - \mu_G)^2} $$
 
@@ -2027,7 +2027,7 @@ DSpark[^dspark] 是 DeepSeek-AI 与北京大学联合发布的**投机解码**�
 
 ### 3.5.1 投机解码原理与技术路线
 
-#### 3.5.1.1 自回归推理的延迟瓶颈
+#### 1. 自回归推理的延迟瓶颈
 
 大语言模型以自回归方式生成文本：每个新 token 都需要以全部前文为条件做一次完整的前向传播，推理延迟与输出长度成正比。由于解码阶段的算术强度低（每生成一个 token 都要完整读取一遍模型权重，计算量却很小），GPU 利用率低下、用户感知等待时间长，构成生产环境 LLM 服务的首要瓶颈——对实时对话助手和多轮智能体工作流等延迟敏感场景尤甚。
 
@@ -2041,25 +2041,25 @@ $$
 
 提升加速比归结为三个杠杆：降低 $T_{\text{draft}}$（草稿起得更快）、提高 $\tau$（草稿猜得更准）、压缩有效 $T_{\text{verify}}$（验证得更聪明）。DSpark 的两大组件恰好分别作用于前两者与后者。
 
-#### 3.5.1.2 自回归草稿器：准但慢
+#### 2. 自回归草稿器：准但慢
 
 早期草稿器沿用自回归结构（如 EAGLE 系列[^eagle]）：每个位置以先前已采样的 token 为条件逐个生成。显式的 token 间依赖建模带来高接受率，但起草成本与草稿块长度 $\gamma$ 成正比（$T_{\text{draft}} \propto \gamma$），迫使这类方法只能使用短草稿块和浅层网络（EAGLE3 仅 1 层 Transformer）来控制延迟。
 
-#### 3.5.1.3 并行草稿器：快但存在后缀衰减
+#### 3. 并行草稿器：快但存在后缀衰减
 
 并行草稿器（如 DFlash[^dflash]）在单次前向传播中同时产出全部 $\gamma$ 个位置的候选，起草延迟几乎与块长无关，因此可以负担更深的网络（DFlash 为 5 层）和更长的草稿块。
 
-DFlash 的关键技术是 **KV 注入**：在 prefill 阶段，从目标模型的一组层 $\{l_1, \ldots, l_m\}$ 提取隐状态，拼接后投影到草稿模型的隐空间：
+DFlash 的关键技术是 **KV 注入**：在 prefill 阶段，从目标模型的一组层 $\{l_1, l_2, \ldots, l_m\}$ 提取隐状态，拼接后投影到草稿模型的隐空间：
 
 $$
-\mathbfit{H}_{\text{ctx}} = \text{RMSNorm}\big(\mathbfit{W}_{\mathrm{c}}\,[\mathbfit{H}^{(l_1)}; \ldots; \mathbfit{H}^{(l_m)}]\big)
+\mathbfit{H}_{\text{ctx}} = \text{RMSNorm}\big(\mathbfit{W}_{\mathrm{c}}\,[\mathbfit{H}^{(l_1)}; \mathbfit{H}^{(l_2)}; \ldots; \mathbfit{H}^{(l_m)}]\big)
 $$
 
 这些上下文特征沿序列维度拼入草稿模型每一层的 Key 和 Value，块内所有位置彼此双向可见。草稿模型复用目标模型的 embedding 层与语言建模头（均冻结）。
 
 并行结构的代价是**块内 token 相互独立预测**，无法建模 token 间依赖。当上下文允许多种合理续写时——例如 “of course” 与 “no problem” 均合理——并行草稿器可能在位置 1 采到 “of”、位置 2 采到 “problem”，拼出 “of problem” 这类不连贯组合。这一现象称为**多模态碰撞**（multi-modal collision）[^gu2018]：每个位置对所有可能的前驱边缘化，而非以实际采样的前缀为条件。其后果是接受率沿草稿块快速衰减（**后缀衰减**，suffix decay），既浪费起草计算也浪费验证计算。
 
-#### 3.5.1.4 系统级瓶颈：验证长度的选择
+#### 4. 系统级瓶颈：验证长度的选择
 
 即使草稿质量高，无差别验证整个草稿块也会损害系统吞吐。理想验证长度沿两条轴变化：
 
@@ -2070,11 +2070,11 @@ DSpark 将这两个问题——草稿质量与验证效率——分别用**半�
 
 ### 3.5.2 半自回归生成架构
 
-#### 3.5.2.1 两段式设计
+#### 1. 两段式设计
 
 DSpark 将草稿生成分为两个阶段：
 
-**并行阶段（Parallel stage）**。一个并行主干网络（论文实例化为 DFlash 骨架）对整个草稿块执行单次前向传播，产出隐状态 $h_1, \ldots, h_\gamma$ 与基础 logits $U_1, \ldots, U_\gamma$。相对原版 DFlash 的一处小改动：将锚点 token（anchor token，即上一验证轮目标模型产出的最后一个 token）本身作为第一个预测位置，$\gamma$ 个输入 token（锚点 + $\gamma-1$ 个 mask token）即产出 $\gamma$ 个草稿 logits，减少起草计算量的同时保持相近的草稿质量。
+**并行阶段（Parallel stage）**。一个并行主干网络（论文实例化为 DFlash 骨架）对整个草稿块执行单次前向传播，产出隐状态 $\mathbfit{h}_1, \mathbfit{h}_2, \ldots, \mathbfit{h}_\gamma$ 与基础 logits $U_1, U_2, \ldots, U_\gamma$。相对原版 DFlash 的一处小改动：将锚点 token（anchor token，即上一验证轮目标模型产出的最后一个 token）本身作为第一个预测位置，$\gamma$ 个输入 token（锚点 + $\gamma-1$ 个 mask token）即产出 $\gamma$ 个草稿 logits，减少起草计算量的同时保持相近的草稿质量。
 
 **串行阶段（Sequential stage）**。在基础 logits 之上叠加一个依赖前缀的转移偏置 $B_k(x_0, x_{<k}, x_k)$，使每个草稿位置能够以块内先前已采样的 token 为条件。串行阶段不定义全局归一化的能量模型，而是通过自回归分解诱导出一个因果的块内分布：
 
@@ -2087,7 +2087,7 @@ $$
 
 这一设计保留了每个 token 的**精确 softmax 概率**——这对投机解码至关重要：拒绝采样规则要求草稿器提供逐 token 的精确概率，而 CRF、CTC 等结构化输出层因全局归一化或对齐路径边缘化无法直接满足此要求（相关讨论见原论文第 6 节）。
 
-#### 3.5.2.2 Markov 头：一阶转移偏置
+#### 2. Markov 头：一阶转移偏置
 
 最简单的串行块实例将 $B_k$ 限制为仅依赖紧邻前一个 token 的一阶转移 $B(x_{k-1}, x_k)$。原则上这是一个完整的 $V \times V$ 矩阵 $\mathbfit{B}$；DSpark 用低秩分解近似：$\mathbfit{B} = \mathbfit{W}_1 \mathbfit{W}_2$，其中 $\mathbfit{W}_1 \in \mathbb{R}^{V \times r}$、$\mathbfit{W}_2 \in \mathbb{R}^{r \times V}$。给定前一 token $x_{k-1}$，位置 $k$ 的转移偏置为：
 
@@ -2097,7 +2097,7 @@ $$
 
 $\mathbfit{W}_1$ 相当于一张 embedding 查找表，$\mathbfit{W}_2$ 为 logit 投影。默认秩 $r = 256$，使存储与每步计算量都很小，即便面对大词表串行循环也足够高效。回到前面的例子：一旦位置 1 采样到 “of”，Markov 头就会在位置 2 抬高 “course”、压低 “problem”，缓解跨模式碰撞。
 
-#### 3.5.2.3 RNN 头：携带完整前缀历史
+#### 3. RNN 头：携带完整前缀历史
 
 Markov 头在一步之外无记忆——位置 $k$ 无法访问 $x_{k-1}$ 之前的 token。RNN 头通过维护一个块内累积完整前缀历史的循环状态 $\mathbfit{s}_k$ 放宽此限制。每一步将当前状态 $\mathbfit{s}_{k-1} \in \mathbb{R}^r$、前一 token 嵌入 $\mathbfit{W}_1[x_{k-1}] \in \mathbb{R}^r$ 与主干隐状态 $\mathbfit{h}_k \in \mathbb{R}^d$ 拼接为输入向量 $\mathbfit{z}_k = [\mathbfit{s}_{k-1};\, \mathbfit{W}_1[x_{k-1}];\, \mathbfit{h}_k] \in \mathbb{R}^{2r+d}$，然后执行单次门控更新：
 
@@ -2112,7 +2112,7 @@ $$
 
 ### 3.5.3 置信度调度验证
 
-#### 3.5.3.1 置信度头
+#### 1. 置信度头
 
 置信度头对每个草稿位置 $k$ 输出一个标量估计 $c_k \in (0, 1)$，建模**条件概率**：在块内所有先前 token 均已被接受的前提下，位置 $k$ 的草稿 token 通过目标模型验证的概率。结构是一个轻量线性投影加 sigmoid：
 
@@ -2128,17 +2128,17 @@ $$
 
 这正是投机解码奠基论文[^specdec]推导出的逐位置接受概率闭式解。置信度头只需拟合这个可直接计算的目标，不依赖黑盒式的间接监督。
 
-#### 3.5.3.2 事后校准：顺序温度缩放（STS）
+#### 2. 事后校准：顺序温度缩放（STS）
 
 与仅需置信度分数正确排序的阈值式验证启发法不同，DSpark 的硬件感知调度需要**累积接受概率的绝对量值**来计算期望接受长度。而神经置信度估计普遍存在过自信问题[^guo2017]：原始置信度头判别力很强（ROC-AUC 0.81～0.90），但期望校准误差（ECE）达 3%～8%，直接使用会扭曲吞吐量估计。
 
-为此 DSpark 引入**顺序温度缩放**（Sequential Temperature Scaling, STS）。由于每个 $c_i$ 建模条件概率，链式法则下草稿前缀被整体接受的联合概率分解为累积乘积 $\prod_{i \le k} c_i$。STS 在保留验证集上从左到右逐位置校准该联合概率：对每个位置 $k \in \{1, \ldots, \gamma\}$，通过一维网格搜索找到使累积乘积的 ECE 最小的温度标量，且固定所有先前位置已校准的分数。温度缩放是保序变换——它将预测概率修正到与经验接受率一致，而不打乱置信度头学到的相对排序。校准后平均 ECE 降至约 1%。
+为此 DSpark 引入**顺序温度缩放**（Sequential Temperature Scaling, STS）。由于每个 $c_i$ 建模条件概率，链式法则下草稿前缀被整体接受的联合概率分解为累积乘积 $\prod_{i \le k} c_i$。STS 在保留验证集上从左到右逐位置校准该联合概率：对每个位置 $k \in \{1, 2, \ldots, \gamma\}$，通过一维网格搜索找到使累积乘积的 ECE 最小的温度标量，且固定所有先前位置已校准的分数。温度缩放是保序变换——它将预测概率修正到与经验接受率一致，而不打乱置信度头学到的相对排序。校准后平均 ECE 降至约 1%。
 
-#### 3.5.3.3 硬件感知前缀调度器
+#### 3. 硬件感知前缀调度器
 
-有了校准的置信度信号，验证长度选择被形式化为一个**全局吞吐量最大化问题**。考虑一批 $R$ 个活跃请求，请求 $r$ 的逐位置置信度估计为 $c_{r,1}, \ldots, c_{r,\gamma}$，调度的验证长度为 $l_r \in \{0, \ldots, \gamma\}$。由于投机解码只按连续前缀接受草稿 token，位置 $j$ 的 token 存活概率为累积乘积 $a_{r,j} = \prod_{i \le j} c_{r,i}$。
+有了校准的置信度信号，验证长度选择被形式化为一个**全局吞吐量最大化问题**。考虑一批 $R$ 个活跃请求，请求 $r$ 的逐位置置信度估计为 $c_{r,1}, c_{r,2}, \ldots, c_{r,\gamma}$，调度的验证长度为 $l_r \in \{0, 1, \ldots, \gamma\}$。由于投机解码只按连续前缀接受草稿 token，位置 $j$ 的 token 存活概率为累积乘积 $a_{r,j} = \prod_{i \le j} c_{r,i}$。
 
-单次验证步中，发送给目标模型的总批大小（以 token 计）为 $B = \sum_{r=1}^{R}(1 + l_r)$，期望成功接受的 token 数为 $\tau = \sum_{r=1}^{R}\big(1 + \sum_{j=1}^{l_r} a_{r,j}\big)$。设 $\text{SPS}(B)$ 为引擎在前向批大小 $B$ 下的吞吐（步/秒）——该容量曲线在引擎初始化时一次性剖析（profile）并存为轻量代价表。调度器的目标是通过动态选择 $l_1, \ldots, l_R$ 最大化期望系统级 token 吞吐：
+单次验证步中，发送给目标模型的总批大小（以 token 计）为 $B = \sum_{r=1}^{R}(1 + l_r)$，期望成功接受的 token 数为 $\tau = \sum_{r=1}^{R}\big(1 + \sum_{j=1}^{l_r} a_{r,j}\big)$。设 $\text{SPS}(B)$ 为引擎在前向批大小 $B$ 下的吞吐（步/秒）——该容量曲线在引擎初始化时一次性剖析（profile）并存为轻量代价表。调度器的目标是通过动态选择 $l_1, l_2, \ldots, l_R$ 最大化期望系统级 token 吞吐：
 
 $$
 \Theta = \tau \cdot \text{SPS}(B)
@@ -2146,17 +2146,17 @@ $$
 
 虽然求 $\Theta$ 的全局最大值看似组合搜索，但目标函数的结构允许高效的贪心解：$a_{r,j}$ 对 $j$ 单调非增（$a_{r,j} \le a_{r,j-1}$），将请求 $r$ 的验证长度从 $j-1$ 扩展到 $j$ 的边际收益恰好是 $a_{r,j}$，因此把全部候选 $\{a_{r,j}\}$ 全局降序排序后逐个纳入，天然尊重块内前缀依赖。算法沿此贪心接纳路径增量更新期望吞吐（$O(1)$ 查表），吞吐一旦下降立即停止（early stopping）。
 
-#### 3.5.3.4 无损性与因果约束
+#### 4. 无损性与因果约束
 
 无损投机解码严格要求**非预期性**（non-anticipating property）：接纳决策不得依赖未来候选 token[^specdec]。由于置信度头依赖前一已采样 token 的 Markov 特征，计算下一存活概率 $a_{r,k+1}$ 需要实例化候选 $x_{r,k}$——若做回溯式全局搜索，会把 $x_{r,k}$ 泄漏进第 $k$ 步的接纳决策，引入选择偏差（原论文附录 A 给出了具体反例）。贪心搜索中的逐步早停机制保证截断决策只依赖已处理的前缀，从而精确保持目标分布。该逐步早停当且仅当 $\Theta$ 为单峰时给出全局最大吞吐——这隐含假设硬件容量曲线光滑衰减；真实硬件不满足该假设时的工程适配见 3.5.6.2 节。
 
 ### 3.5.4 训练方法
 
-#### 3.5.4.1 训练数据组织
+#### 1. 训练数据组织
 
 训练时从每条目标序列中随机采样多个锚点位置，构成 $\gamma$-token 块作为训练数据。目标模型全程冻结；草稿模型共享其 embedding 层与语言建模头（同样冻结），只更新并行主干、串行块与置信度头三部分。
 
-#### 3.5.4.2 三项损失
+#### 2. 三项损失
 
 训练目标由三项组成，均以位置权重 $w_k = \exp(-(k-1)/\gamma)$ 加权——前缀验证机制下靠前的位置对期望接受长度贡献更大。
 
@@ -2186,7 +2186,7 @@ $$
 \mathcal{L} = \alpha_{\text{ce}}\, \mathcal{L}_{\text{ce}} + \alpha_{\text{tv}}\, \mathcal{L}_{\text{tv}} + \alpha_{\text{conf}}\, \mathcal{L}_{\text{conf}}
 $$
 
-#### 3.5.4.3 面向 V4 规模的训练工程优化
+#### 3. 面向 V4 规模的训练工程优化
 
 训练草稿模型需要目标模型的输出分布做监督。对 DeepSeek-V4 这个量级的目标模型，在完整文档上下文上同时评估两个模型会带来可观的显存占用与跨 worker 通信开销。DSpark 在 DeepSeek 内部训练框架 HAI-LLM 中实现了两项系统级优化：
 
@@ -2195,13 +2195,13 @@ $$
 
 ### 3.5.5 离线实验与分析
 
-#### 3.5.5.1 主实验结果
+#### 1. 主实验结果
 
 离线评测为隔离草稿质量与系统级调度策略，关闭置信度调度器，强制所有草稿器提出固定长度的草稿块，报告每轮平均接受长度 $\tau$。目标模型覆盖 Qwen3-4B/8B/14B 与 Gemma4-12B 四个模型；对比基线为自回归代表 Eagle3（1 层）与并行代表 DFlash（5 层，DSpark 主干同为 5 层）；所有草稿器在同一训练框架、同一数据上重训以保证公平。评测覆盖三个域：数学推理（GSM8K、MATH500、AIME25）、代码生成（MBPP、HumanEval、LiveCodeBench）与日常对话（MT-Bench、Alpaca、Arena-Hard）。
 
 DSpark 在全部目标模型与全部基准域上一致优于两条基线。以宏平均接受长度计，在 Qwen3-4B/8B/14B 上相对 Eagle3 分别提升 30.9%、26.7%、30.0%，相对 DFlash 分别提升 16.3%、18.4%、18.3%；在 Gemma4-12B 上同样保持一致优势，说明该方法可跨模型家族泛化。数据还揭示了强烈的域效应：结构化任务的接受长度天然更高（Qwen3-4B 上数学约 5.57、代码约 5.12，对话仅 3.49）——这正是静态验证长度浪费计算的根源，直接印证了置信度调度的动机。
 
-#### 3.5.5.2 为什么并行生成能胜过自回归
+#### 2. 为什么并行生成能胜过自回归
 
 主实验有一个反直觉现象：并行的 DFlash 与半自回归的 DSpark 的接受长度普遍长于完全自回归的 Eagle3。论文用**逐位置条件接受率**分析该现象——统计位置 $k$ 在前缀 $1$ 到 $k-1$ 全部通过验证的实例中被接受的比例，从而剔除先前前缀错误的惩罚、暴露每一步的基线预测质量：
 
@@ -2209,7 +2209,7 @@ DSpark 在全部目标模型与全部基准域上一致优于两条基线。以�
 - **后续位置的独立性局限**。位置 2 至 7 暴露并行生成的固有缺陷：随着前面的 token 锁定语义路径，后续 token 本应越来越可预测，Eagle3 的条件接受率确实稳中有升（对话上从 0.53 升至 0.74），DFlash 却持续衰减（代码上从 0.87 跌至 0.78）——多模态碰撞所致。
 - **半自回归修复衰减**。DSpark 继承了深并行主干的高首位接受率（数学上首位约 0.93），同时轻量串行头抑制了后缀衰减，整个草稿块内保持高且平稳的条件接受率。
 
-#### 3.5.5.3 消融：一点自回归就够了
+#### 3. 消融：一点自回归就够了
 
 **草稿器深度**。固定块长为 7，将 DSpark 层数从 1 扫到 5 并与 5 层 DFlash 对比：DSpark 性能随深度单调提升，边际收益在 1 层到 2 层之间最陡；**2 层 DSpark 即在全部三个域上超过 5 层 DFlash**。用轻量串行头注入局部自回归，比单纯堆叠更深的并行层拥有好得多的“精度-参数”权衡。
 
@@ -2221,23 +2221,23 @@ DSpark 在全部目标模型与全部基准域上一致优于两条基线。以�
 
 ### 3.5.6 DeepSeek-V4 中的线上部署
 
-#### 3.5.6.1 V4 配套草稿模型的配置
+#### 1. V4 配套草稿模型的配置
 
 与 DeepSeek-V4-Flash 及 V4-Pro（预览版）共同部署的 DSpark 草稿模型，其并行主干由 3 个 MoE 层（DeepSeekMoE 结构[^dsmoe]）组成，配合 mHC（多路残差连接，见 2.6 节）与窗口 128 的滑动窗口注意力；最大草稿块长 $\gamma = 5$，串行建模采用 Markov 头。置信度头与草稿模型端到端联合训练，随后经 STS 校准以提供可靠的调度信号。
 
-#### 3.5.6.2 调度器的异步化改造
+#### 2. 调度器的异步化改造
 
 将 3.5.3.3 节的调度算法直接搬进生产环境会遭遇两个现实冲突：其一，算法假设光滑单峰的容量曲线，而真实硬件的 $\text{SPS}(B)$ 是离散的、呈锯齿状阶跃退化；其二，算法要求每步动态调整草稿 token 的调度，与连续 CUDA graph 重放和零开销调度（Zero-Overhead Scheduling, ZOS）冲突——ZOS 要求下一步的批大小在当前步完成之前就已知，同步调度必然阻塞 GPU 流水线。
 
-DSpark 的解法是让调度器**异步运行**：用两步之前的置信度头输出近似即将到来的验证容量。机制上，当前步的候选 token 仍严格按实际的、最新的累积置信度分数排序；两步前的历史预测只用于确定动态截断长度（即批容量上限 $K$）。这实际上把接纳过程转化为动态 top-$K$ 选择——容量近似引入轻微的时间偏移，但选择机制本质上保序：置信度最高的草稿 token 始终被优先验证。该适配完全隐藏了调度延迟，与 ZOS 无缝集成。
+DSpark 的解法是让调度器**异步运行**：用两步之前的置信度头输出近似即将到来的验证容量。机制上，当前步的候选 token 仍严格按实际的、最新的累积置信度分数排序；两步前的历史预测只用于确定动态截断长度（批容量上限 $K$）。这实际上把接纳过程转化为动态 top-$K$ 选择——容量近似引入轻微的时间偏移，但选择机制本质上保序：置信度最高的草稿 token 始终被优先验证。该适配完全隐藏了调度延迟，与 ZOS 无缝集成。
 
 异步化还带来一个意外收获：为避免贪心搜索被锯齿状 SPS 悬崖困在局部极小，生产版**移除了 early-stopping break，改做无约束全局搜索**。常规情况下这种回溯式搜索会泄漏未来 token 信息、破坏无损保证；但 ZOS 驱动的异步适配天然阻止了这一点——无约束搜索只评估两步前的历史预测，接纳决策与当前 token $x_{r,k}$ 的实例化隔离，截断长度本质上只依赖两步前已有的信息。异步设计构成一道因果屏障：既跨越硬件容量悬崖最大化物理吞吐，又精确保持目标分布。
 
-#### 3.5.6.3 变长验证的 kernel 适配
+#### 3. 变长验证的 kernel 适配
 
 动态调度要求推理框架在单一批内高效支持变长查询，而标准解码 kernel 针对固定查询长度深度优化——朴素处理变长验证前缀会因 padding 与负载不均导致 GPU 严重欠利用。DSpark 的解法是将物理执行与逻辑序列跟踪解耦：计算 kernel 中所有请求的 token 摊平、作为独立元素统一处理，复杂的序列内依赖通过一个标记张量传入稀疏注意力实现。在 DeepSeek-V4 架构上，只有 index-attention 与 compress kernel 需要为支持变长路由做修改，动态调度器得以无低层执行开销地无缝运行。
 
-#### 3.5.6.4 线上性能
+#### 4. 线上性能
 
 线上评测将 DSpark-5（最大草稿长度 $\gamma = 5$）与既有生产基线 MTP-1（单 token 多词元预测[^dsv3]）在 V4-Flash 与 V4-Pro（均为预览版）的生产服务引擎中对比。MTP-1 之所以是历史生产配置，是因为静态多 token 草稿器（如 MTP-3/5）在高并发下验证开销过大、会严格拉低总吞吐——这一对比恰好检验 DSpark 能否在动态服务环境中安全释放长草稿块的性能潜力。所有数据点为真实用户流量的原始遥测采样。
 
@@ -2248,7 +2248,7 @@ DSpark 的解法是让调度器**异步运行**：用两步之前的置信度头
 
 负载动态分析揭示了收益的底层机制：中等并发（V4-Flash 低于约 200 并发请求、V4-Pro 低于约 150）下，硬件感知调度器利用闲置目标算力，把验证预算从 MTP-1 的静态 2 token 扩展到约 4～6 token/请求；并发攀升、目标容量饱和时，调度器平滑压缩该预算，确保低置信度草稿 token 在消耗关键批容量之前就被剪除。轻负载吃满闲置算力、重负载保住批容量——这正是“验证得更聪明”在系统层的兑现。
 
-#### 3.5.6.5 已知局限
+#### 5. 已知局限
 
 前缀调度器最小化的是目标模型侧的验证浪费，但草稿侧仍有一笔固定成本：并行主干生成初始 $\gamma$-token 块的前向传播。对于接受率天生极低的复杂请求（如长链条推理难题），这笔前置起草计算无法回收。论文提出的未来方向是在草稿模型内引入难度感知的早退（difficulty-aware early exit），让这类请求跳过整块草稿生成。
 

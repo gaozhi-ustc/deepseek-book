@@ -2,58 +2,40 @@
 # -*- coding: utf-8 -*-
 """生成 md2docx.py 使用的 Word 版式模板 reference_book.docx。
 
-版式依据编辑要求（RULE.md 第 27 条）：
-  * 正文段落首行缩进 2 字符；
-  * 正文西文 Times New Roman、中文宋体，字号 5 号（10.5pt）；
-  * 代码 Courier New，字号小五（9pt）。
+版式与《chapter2_new_v3_公式修订稿.docx》对齐（2026-08-23 用户要求）：
+  * 正文：中文宋体、西文 Cambria，小四（12pt），无首行缩进，段后距 200；
+  * 标题：中文黑体、西文 Calibri，加粗，主题色；
+  * 代码：Consolas 11pt。
 
-原理：取 pandoc 内置默认 reference.docx，改写其中 word/styles.xml 的
-Normal / Body Text / Verbatim Char 样式后重新打包。*.docx 不入库，
+实现：取 pandoc 内置默认 reference.docx，将其 word/styles.xml 与
+word/theme/theme1.xml 整体替换为 template/ 目录下从公式修订稿提取的
+样式定义（styles_v3.xml / theme_v3.xml，已入库），重新打包。pandoc 按
+样式名（Body Text、heading 1 等）识别 reference-doc 中的样式，样式 id
+为数字不影响。reference_book.docx 本身不入库（*.docx 被 gitignore），
 克隆仓库后运行本脚本一次即可。
+
+注意：此版式与 RULE.md 第 27 条（首行缩进 2 字符、西文 Times New
+Roman 5 号、代码 Courier New 小五）不一致，以用户 2026-08-23 指定的
+公式修订稿版式为准；旧版式实现见 git 历史。
 """
 
 import os
-import re
-import shutil
 import subprocess
-import sys
 import tempfile
 import zipfile
 
 from md2docx import find_pandoc
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reference_book.docx")
-
-
-def patch_styles(xml: str) -> str:
-    # Normal：西文 Times New Roman、中文宋体、5号（21 半磅）
-    xml, n = re.subn(
-        r'(<w:style w:type="paragraph" w:default="1" w:styleId="Normal">\s*'
-        r'<w:name w:val="Normal" />\s*<w:qFormat />)',
-        r'\1\n    <w:rPr>\n'
-        r'      <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体" />\n'
-        r'      <w:sz w:val="21" />\n      <w:szCs w:val="21" />\n    </w:rPr>',
-        xml)
-    assert n == 1, "Normal 样式改写失败"
-
-    # Body Text：首行缩进 2 字符（First Paragraph 基于它，自动继承）
-    xml, n = re.subn(
-        r'(<w:style w:type="paragraph" w:styleId="BodyText">.*?'
-        r'<w:spacing w:before="180" w:after="180" />)',
-        r'\1\n      <w:ind w:firstLineChars="200" w:firstLine="420" />',
-        xml, flags=re.S)
-    assert n == 1, "BodyText 样式改写失败"
-
-    # Verbatim Char（行内代码与代码块字体来源）：Courier New 小五（18 半磅）
-    xml, n = re.subn(
-        r'<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" />\s*<w:sz w:val="22" />',
-        '<w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" />\n      <w:sz w:val="18" />',
-        xml)
-    assert n >= 1, "VerbatimChar 样式改写失败"
-    return xml
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(HERE, "reference_book.docx")
+STYLES = os.path.join(HERE, "template", "styles_v3.xml")
+THEME = os.path.join(HERE, "template", "theme_v3.xml")
 
 
 def main() -> None:
+    for p in (STYLES, THEME):
+        if not os.path.isfile(p):
+            raise SystemExit(f"错误：缺少模板资产 {p}（应随仓库提供）。")
     pandoc = find_pandoc()
     with tempfile.TemporaryDirectory() as tmp:
         base = os.path.join(tmp, "ref.docx")
@@ -61,13 +43,15 @@ def main() -> None:
             f.write(subprocess.run(
                 [pandoc, "--print-default-data-file", "reference.docx"],
                 capture_output=True, check=True).stdout)
-        with zipfile.ZipFile(base) as zin:
-            styles = patch_styles(zin.read("word/styles.xml").decode("utf-8"))
-            with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as zout:
-                for item in zin.infolist():
-                    data = (styles.encode("utf-8") if item.filename == "word/styles.xml"
-                            else zin.read(item.filename))
-                    zout.writestr(item, data)
+        replace = {
+            "word/styles.xml": open(STYLES, "rb").read(),
+            "word/theme/theme1.xml": open(THEME, "rb").read(),
+        }
+        with zipfile.ZipFile(base) as zin, \
+                zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                zout.writestr(item, replace.get(item.filename,
+                                                zin.read(item.filename)))
     print(f"已生成 {OUT}")
 
 

@@ -14,8 +14,9 @@
 | `有修改痕迹 chapter2_new__v3.docx` | 编辑 Peter（Yurui Ye）对第 2 章的三审直接修订原件（2026-07-19，178 处修订痕迹；gitignore 仅存本地，**勿删**） |
 | `有修改痕迹 chapter3_new_v2.docx` | 编辑 Peter 对第 3 章的三审直接修订原件（2026-07-20，191 处修订痕迹；gitignore 仅存本地，**勿删**） |
 | `reply.docx` | 编辑高婧雅对第 2 章正文的二审批注原件（2026-07-14，21 条批注 + 若干直接修订；`*.docx` 被 gitignore，仅存本地，**勿删**） |
-| `md2docx.py` | Markdown → Word 转换脚本，LaTeX 公式转为 Word 原生公式；自动使用 `reference_book.docx` 版式模板，支持 `-o 输出名.docx`（详见下文"工具链"） |
-| `make_reference_docx.py` | 生成 `reference_book.docx` 版式模板（正文首行缩进 2 字符、西文 Times New Roman 5号、代码 Courier New 小五）；模板不入库，克隆后运行一次 |
+| `md2docx.py` | Markdown → Word 转换脚本，LaTeX 公式转为 Word 原生公式并自动按章编号（(2.1)、(2.2)…）；自动使用 `reference_book.docx` 版式模板，支持 `-o 输出名.docx`（详见下文"工具链"） |
+| `make_reference_docx.py` | 生成 `reference_book.docx` 版式模板（与《chapter2_new_v3_公式修订稿.docx》版式对齐：正文宋体/Cambria 12pt 无首行缩进、标题黑体/Calibri、代码 Consolas）；模板不入库，克隆后运行一次 |
+| `template/` | 版式模板资产（`styles_v3.xml`/`theme_v3.xml`/`settings_v3.xml`/`fontTable_v3.xml`，从公式修订稿 docx 提取，入库）：前两个由 `make_reference_docx.py` 打进版式模板，后两个由 `md2docx.py` 转换后直接替换进产物 docx |
 | `pic/` | 第2章插图 `2-1.png`～`2-4.png`（已按重构后的图号重命名） |
 | `typora-user-images/` | 第3章正文引用的截图 |
 | `2-3章目录-一审.docx` | 编辑一审批注原件（`*.docx` 被 gitignore，仅存本地，**勿删**） |
@@ -155,7 +156,10 @@ python3 md2docx.py 某文件.md          # 转换指定文件
 ```
 
 - 关键点：用 pandoc 的 `gfm+tex_math_dollars` 读取器，`$...$` / `$$...$$` 中的 LaTeX 公式输出为 **Word 原生 OMML 公式**（可双击编辑），不是图片。
-- 脚本自带校验：比对源文件公式数与 docx 内 `<m:oMath>` 节点数，数目不符时报警退出码 1。若报警，通常是某个公式的 LaTeX 语法 pandoc 解析不了，看 pandoc 警告定位。
+- **行间公式自动按章编号**（2026-08-23 用户要求）：每个 `$$` 公式尾部追加 `\qquad (章.序号)`（如 (2.1)…(2.103)、(3.1)…(3.64)），章号取自"# 第N章"标题；编号加在转换用临时副本上，**md 源不被改动**。原稿中 13 处 `\quad\quad(N)` 旧手工编号已从 md 清除。
+- **版式**（2026-08-23 用户要求）：与《chapter2_new_v3_公式修订稿.docx》对齐——正文中文宋体、西文 Cambria、12pt、无首行缩进；标题黑体/Calibri 加粗；代码 Consolas。样式资产在 `template/`（入库），`make_reference_docx.py` 重打包生成模板。`styles_v3.xml` 中的全部字体颜色已统改为 `auto`（黑色）——修订稿原样式表标题是蓝色、靠正文逐运行 `color=auto` 覆盖成黑，我们直接在样式层改黑（2026-08-31 用户要求全黑）。⚠ 此版式**覆盖了 RULE.md 第 27 条**（首行缩进 2 字符、Times New Roman 5 号、Courier New 小五），第 27 条旧实现见 git 历史（0606e50 之前的 make_reference_docx.py），若编辑要求回退可恢复。
+- **WPS 兼容后处理**（2026-08-31，用户反馈 WPS 中公式无法显示后加入）：pandoc 输出的 OMML 不带字体声明，Word 靠默认值渲染而 WPS 不能。`md2docx.py` 转换后自动打补丁：① 每个数学运行 `m:r` 补 `Cambria Math` 字体、结构属性块（dPr/fPr/radPr 等）补 `m:ctrlPr`、删 `oMathParaPr`（对齐公式修订稿的 OMML 写法）；② 含中文/全角字符（弯引号、破折号等歧义字符）的文本运行补 `w:hint="eastAsia"`（否则这些字符走西文字体）；③ `settings.xml` 整体换用 `template/settings_v3.xml`（含 `m:mathPr` 数学属性、`useFELayout` 中文版式、脚注分隔线 id 已改为 pandoc 的 -1/0）；④ `fontTable.xml` 换用 `template/fontTable_v3.xml`（注册宋体/黑体/Cambria Math 及 WPS 替换字体映射）。
+- 脚本自带校验：比对源文件公式数与 docx 内 `<m:oMath>` 节点数（编号数与行间公式数也比对），数目不符时报警退出码 1。若报警，通常是某个公式的 LaTeX 语法 pandoc 解析不了，看 pandoc 警告定位。
 - Markdown 脚注自动转为 Word 页脚注；`pic/` 相对路径图片自动嵌入。
 
 ### Word 审阅稿 → Markdown（收编辑意见用）
